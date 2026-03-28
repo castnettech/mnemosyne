@@ -1,0 +1,4 @@
+# Mnemosyne — Runtime Dependencies
+# version 0.3.0: Zero runtime dependencies (stdlib only)
+# version 0.4.0: Optional dense embedding support (not completed)
+# onnxruntime==1.17.1

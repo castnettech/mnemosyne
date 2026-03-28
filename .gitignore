@@ -1,0 +1,50 @@
+# ── Mnemosyne data (user-specific, never committed) ──
+.mnemosyne/
+bloom.bin
+*.db
+*.db-wal
+*.db-shm
+mnemosyne.lock
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──
+.venv/
+venv/
+env/
+
+# ── Testing ──
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Secrets / credentials ──
+.env
+*.pem
+*.key
+*.p12
+*.secret
+credentials*
+id_rsa*
+id_ed25519*
+
+# ── OS artifacts ──
+.DS_Store
+Thumbs.db
+
+# ── Claude Code workspace ──
+.claude/
+CLAUDE.md

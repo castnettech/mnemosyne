@@ -1,0 +1,251 @@
+{
+  "project": "mnemosyne",
+  "root": ".",
+  "questions": [
+    {
+      "id": "M01",
+      "question": "How does the ARC cache evict entries?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["cache.py"],
+      "ground_truth_chunks": [
+        {"file": "cache.py", "symbol_name": "ARCCache._evict"},
+        {"file": "cache.py", "symbol_name": "ARCCache._trim_ghost_lists"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M02",
+      "question": "How does the retrieval pipeline rank results using Reciprocal Rank Fusion?",
+      "category": "cross_file",
+      "ground_truth_files": ["retrieval.py", "ranking.py"],
+      "ground_truth_chunks": [
+        {"file": "retrieval.py", "symbol_name": "RetrievalEngine._rrf_fuse"},
+        {"file": "ranking.py", "symbol_name": "rrf_fuse"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M03",
+      "question": "What are the four stages of the compression pipeline?",
+      "category": "compression_pipeline",
+      "ground_truth_files": ["compress.py"],
+      "ground_truth_chunks": [
+        {"file": "compress.py", "symbol_name": "Compressor.compress"},
+        {"file": "compress.py", "symbol_name": "Compressor._mark_preserved"},
+        {"file": "compress.py", "symbol_name": "Compressor._collapse_boilerplate"},
+        {"file": "compress.py", "symbol_name": "Compressor._importance_filter"},
+        {"file": "compress.py", "symbol_name": "Compressor._density_filter"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M04",
+      "question": "How does the Bloom filter implement persistence using save and load?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["bloom.py"],
+      "ground_truth_chunks": [
+        {"file": "bloom.py", "symbol_name": "BloomFilter.save"},
+        {"file": "bloom.py", "symbol_name": "BloomFilter.load"},
+        {"file": "bloom.py", "symbol_name": "BloomFilter"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M05",
+      "question": "How does configuration loading work, including TOML parsing and deep merge?",
+      "category": "config_setup",
+      "ground_truth_files": ["config.py"],
+      "ground_truth_chunks": [
+        {"file": "config.py", "symbol_name": "Config.__init__"},
+        {"file": "config.py", "symbol_name": "Config._deep_merge"},
+        {"file": "config.py", "symbol_name": "Config.save"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M06",
+      "question": "How does the ingestion pipeline detect which files need re-indexing?",
+      "category": "retrieval_pipeline",
+      "ground_truth_files": ["ingest.py", "bloom.py", "hasher.py"],
+      "ground_truth_chunks": [
+        {"file": "ingest.py", "symbol_name": "Ingester._needs_indexing"},
+        {"file": "ingest.py", "symbol_name": "Ingester._scan_files"},
+        {"file": "ingest.py", "symbol_name": "Ingester._should_ignore"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M07",
+      "question": "What data model primitives exist for representing files, chunks, and query results?",
+      "category": "data_model",
+      "ground_truth_files": ["models.py"],
+      "ground_truth_chunks": [
+        {"file": "models.py", "symbol_name": "FileRecord"},
+        {"file": "models.py", "symbol_name": "Chunk"},
+        {"file": "models.py", "symbol_name": "QueryResult"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M08",
+      "question": "How does the budget_cut function select chunks within a token limit and handle compression fallback?",
+      "category": "retrieval_pipeline",
+      "ground_truth_files": ["ranking.py"],
+      "ground_truth_chunks": [
+        {"file": "ranking.py", "symbol_name": "budget_cut"},
+        {"file": "ranking.py", "symbol_name": "cost_model_score"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M09",
+      "question": "How does the cost model penalize boilerplate and boost structured code?",
+      "category": "retrieval_pipeline",
+      "ground_truth_files": ["ranking.py", "retrieval.py", "density.py"],
+      "ground_truth_chunks": [
+        {"file": "ranking.py", "symbol_name": "cost_model_score"},
+        {"file": "retrieval.py", "symbol_name": "RetrievalEngine._cost_model_rank"},
+        {"file": "density.py", "symbol_name": "detect_boilerplate_patterns"}
+      ],
+      "budget": 4000,
+      "difficulty": "hard"
+    },
+    {
+      "id": "M10",
+      "question": "How does the TierManager route chunk access through hot, warm, and cold tiers?",
+      "category": "cross_file",
+      "ground_truth_files": ["tiers.py", "cache.py"],
+      "ground_truth_chunks": [
+        {"file": "tiers.py", "symbol_name": "TierManager"},
+        {"file": "cache.py", "symbol_name": "ARCCache.get"},
+        {"file": "cache.py", "symbol_name": "ARCCache.put"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M11",
+      "question": "How does the chunker registry dispatch to language-specific chunkers?",
+      "category": "cross_file",
+      "ground_truth_files": ["chunkers/__init__.py"],
+      "ground_truth_chunks": [
+        {"file": "chunkers/__init__.py", "symbol_name": "get_chunker"},
+        {"file": "chunkers/__init__.py", "symbol_name": "detect_language"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M12",
+      "question": "How does the DeltaTracker detect file changes and produce unified diffs?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["delta.py"],
+      "ground_truth_chunks": [
+        {"file": "delta.py", "symbol_name": "DeltaTracker"},
+        {"file": "delta.py", "symbol_name": "DeltaTracker.detect_changes"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M13",
+      "question": "How does the symbol search match query terms against function and class names?",
+      "category": "retrieval_pipeline",
+      "ground_truth_files": ["retrieval.py"],
+      "ground_truth_chunks": [
+        {"file": "retrieval.py", "symbol_name": "RetrievalEngine._symbol_search"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M14",
+      "question": "How does the import graph boost inject dependency files into retrieval results?",
+      "category": "retrieval_pipeline",
+      "ground_truth_files": ["retrieval.py"],
+      "ground_truth_chunks": [
+        {"file": "retrieval.py", "symbol_name": "RetrievalEngine._import_graph_boost"}
+      ],
+      "budget": 4000,
+      "difficulty": "hard"
+    },
+    {
+      "id": "M15",
+      "question": "How does the database schema define the files, chunks, and FTS5 tables?",
+      "category": "data_model",
+      "ground_truth_files": ["schema.py"],
+      "ground_truth_chunks": [
+        {"file": "schema.py", "symbol_name": "init_db"},
+        {"file": "schema.py", "symbol_name": "open_store"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M16",
+      "question": "How does the TF-IDF backend split identifiers and handle camelCase and snake_case?",
+      "category": "retrieval_pipeline",
+      "ground_truth_files": ["embeddings/tfidf_backend.py"],
+      "ground_truth_chunks": [
+        {"file": "embeddings/tfidf_backend.py", "symbol_name": "TFIDFBackend"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M17",
+      "question": "How does the Prefetcher learn query-to-chunk patterns for cache warming?",
+      "category": "cross_file",
+      "ground_truth_files": ["prefetch.py", "cache.py"],
+      "ground_truth_chunks": [
+        {"file": "prefetch.py", "symbol_name": "Prefetcher"},
+        {"file": "cache.py", "symbol_name": "ARCCache.prefetch"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M18",
+      "question": "How does the Analytics class compute decay-weighted usage scores?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["analytics.py"],
+      "ground_truth_chunks": [
+        {"file": "analytics.py", "symbol_name": "Analytics"},
+        {"file": "analytics.py", "symbol_name": "Analytics.get_usage_scores"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    },
+    {
+      "id": "M19",
+      "question": "How does staleness detection annotate query results when source files change on disk?",
+      "category": "bug_investigation",
+      "ground_truth_files": ["retrieval.py"],
+      "ground_truth_chunks": [
+        {"file": "retrieval.py", "symbol_name": "RetrievalEngine._annotate_staleness"}
+      ],
+      "budget": 4000,
+      "difficulty": "medium"
+    },
+    {
+      "id": "M20",
+      "question": "How does the Formatter produce plain text and JSON output from query results?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["formatter.py"],
+      "ground_truth_chunks": [
+        {"file": "formatter.py", "symbol_name": "Formatter"},
+        {"file": "formatter.py", "symbol_name": "Formatter.format_plain"}
+      ],
+      "budget": 4000,
+      "difficulty": "easy"
+    }
+  ]
+}

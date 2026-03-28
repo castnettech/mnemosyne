@@ -1,0 +1,421 @@
+# Copyright 2026 Cast Rock Innovation L.L.C.
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+"""
+Ingestion orchestrator for Mnemosyne.
+
+Scans the project directory, chunks modified files, deduplicates by content
+hash, stores chunks, updates the FTS5 index, computes embeddings, and
+maintains the Bloom filter and audit log.
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import os
+import time
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
+from mnemosyne.models import FileRecord, Chunk, estimate_tokens
+
+if TYPE_CHECKING:
+    from mnemosyne.store import Store
+    from mnemosyne.bloom import BloomFilter
+    from mnemosyne.audit import AuditLog
+
+
+class Ingester:
+    """
+    File ingestion orchestrator.
+
+    Walks the project root, applies ignore rules, checks the Bloom filter
+    and hash for changes, chunks each file, deduplicates by content hash,
+    stores everything, and records an audit entry.
+
+    Args:
+        project_root:  Absolute path to the project directory to index.
+        config:        Mnemosyne :class:`~mnemosyne.config.Config` instance.
+        store:         Persistent :class:`~mnemosyne.store.Store` instance.
+        bloom:         :class:`~mnemosyne.bloom.BloomFilter` for fast
+                       "already indexed" checks.
+        tfidf_backend: TF-IDF backend with a ``fit(chunk_id, text)``
+                       method for updating the embedding index.
+        audit:         :class:`~mnemosyne.audit.AuditLog` for operation
+                       provenance records.
+    """
+
+    def __init__(
+        self,
+        project_root: str,
+        config,
+        store: "Store",
+        bloom: "BloomFilter",
+        tfidf_backend,
+        audit: "AuditLog",
+    ) -> None:
+        self.root = os.path.abspath(project_root)
+        self.config = config
+        self.store = store
+        self.bloom = bloom
+        self.tfidf = tfidf_backend
+        self.audit = audit
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def ingest(
+        self,
+        paths: list[str] | None = None,
+        full: bool = False,
+        dry_run: bool = False,
+    ) -> dict:
+        """
+        Index files in the project.
+
+        Args:
+            paths:   Explicit list of file paths to process.  When ``None``
+                     all files under ``project_root`` are scanned.
+            full:    Force a full re-index of every file, ignoring hashes
+                     and mtimes.
+            dry_run: Scan and report what would be indexed without writing
+                     any data.
+
+        Returns:
+            Stats dict with keys ``files_scanned``, ``files_indexed``,
+            ``files_skipped``, ``files_failed``, ``chunks_added``,
+            ``chunks_deduped``, ``elapsed_seconds``.
+        """
+        t_start = time.monotonic()
+
+        stats: dict[str, int | float] = {
+            "files_scanned": 0,
+            "files_indexed": 0,
+            "files_skipped": 0,
+            "files_failed": 0,
+            "chunks_added": 0,
+            "chunks_deduped": 0,
+            "elapsed_seconds": 0.0,
+        }
+
+        # Resolve file list
+        if paths:
+            file_list = [os.path.abspath(p) for p in paths if os.path.isfile(p)]
+        else:
+            file_list = self._scan_files()
+
+        stats["files_scanned"] = len(file_list)
+
+        # On full re-index of the entire project, purge stale file records
+        # (files that were previously indexed but are no longer in the scan
+        # list — e.g. because they were deleted or newly match an ignore
+        # pattern).  This prevents ghost chunks from polluting retrieval.
+        if full and not paths and not dry_run:
+            scanned_rel_paths = {
+                os.path.relpath(f, self.root).replace(os.sep, "/")
+                for f in file_list
+            }
+            for rec in self.store.list_files(include_deleted=False):
+                if rec.rel_path not in scanned_rel_paths:
+                    self.store.delete_chunks_for_file(rec.file_id)
+                    self.store.mark_deleted(rec.file_id)
+
+        for abs_path in file_list:
+            rel_path = os.path.relpath(abs_path, self.root).replace(os.sep, "/")
+
+            try:
+                if not self._needs_indexing(abs_path, rel_path, full):
+                    stats["files_skipped"] += 1
+                    continue
+
+                if dry_run:
+                    stats["files_indexed"] += 1
+                    continue
+
+                added, deduped = self._index_file(abs_path, rel_path)
+                stats["files_indexed"] += 1
+                stats["chunks_added"] += added
+                stats["chunks_deduped"] += deduped
+
+            except Exception as exc:
+                stats["files_failed"] += 1
+                # Best-effort audit of the failure
+                try:
+                    self.audit.log(
+                        "ingest_error",
+                        file=rel_path,
+                        error=str(exc),
+                    )
+                except Exception:
+                    pass
+
+        # Rebuild TF-IDF vocabulary and re-embed all chunks now that we have
+        # the full corpus.  This is cheap for typical project sizes and ensures
+        # IDF values are meaningful (single-file embeddings produce empty
+        # vectors because min_df filtering removes all terms).
+        if not dry_run and stats["chunks_added"] > 0:
+            self._rebuild_tfidf()
+
+        elapsed = time.monotonic() - t_start
+        stats["elapsed_seconds"] = round(elapsed, 3)
+
+        # Audit summary
+        if not dry_run:
+            try:
+                self.audit.log("ingest_complete", **{str(k): v for k, v in stats.items()})
+            except Exception:
+                pass
+
+        return stats
+
+    # ------------------------------------------------------------------
+    # File scanning
+    # ------------------------------------------------------------------
+
+    def _scan_files(self) -> list[str]:
+        """
+        Walk the project directory and return absolute paths of candidate files.
+
+        Applies extension filter, size limit, and ignore patterns.
+        """
+        supported_exts: set[str] = set(self.config.general.supported_extensions)
+        max_size_bytes: int = self.config.general.max_file_size_kb * 1024
+
+        results: list[str] = []
+
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            rel_dir = os.path.relpath(dirpath, self.root).replace(os.sep, "/")
+
+            # Prune ignored directories in-place to prevent descent
+            dirnames[:] = [
+                d for d in dirnames
+                if not self._should_ignore(
+                    (rel_dir + "/" + d).lstrip("./") if rel_dir != "." else d
+                )
+            ]
+
+            for fname in filenames:
+                abs_path = os.path.join(dirpath, fname)
+                rel_path = os.path.relpath(abs_path, self.root).replace(os.sep, "/")
+
+                if self._should_ignore(rel_path):
+                    continue
+
+                _, ext = os.path.splitext(fname)
+                if ext.lower() not in supported_exts:
+                    continue
+
+                try:
+                    size = os.path.getsize(abs_path)
+                except OSError:
+                    continue
+                if size > max_size_bytes:
+                    continue
+
+                results.append(abs_path)
+
+        return results
+
+    def _should_ignore(self, rel_path: str) -> bool:
+        """
+        Return True if *rel_path* matches any configured ignore pattern.
+
+        Patterns are matched against both the full relative path and the
+        basename, using ``fnmatch.fnmatch`` glob semantics.
+        """
+        patterns: list[str] = self.config.general.ignore_patterns
+        basename = os.path.basename(rel_path)
+
+        for pattern in patterns:
+            # Match against basename
+            if fnmatch.fnmatch(basename, pattern):
+                return True
+            # Match against full relative path (e.g. "node_modules/..." matches "node_modules")
+            if fnmatch.fnmatch(rel_path, pattern):
+                return True
+            # Match any path component against the pattern (for directory names)
+            parts = rel_path.replace("\\", "/").split("/")
+            for part in parts:
+                if fnmatch.fnmatch(part, pattern):
+                    return True
+
+        return False
+
+    def _needs_indexing(self, abs_path: str, rel_path: str, full: bool) -> bool:
+        """
+        Determine whether *abs_path* should be (re-)indexed.
+
+        A file needs indexing when:
+
+        * ``full`` is True (always re-index), or
+        * The file is not in the Bloom filter, or
+        * The stored ``FileRecord`` is absent, or
+        * The file mtime or content hash differs from the stored record.
+
+        Args:
+            abs_path: Absolute filesystem path.
+            rel_path: Relative path from project root.
+            full:     Force re-index flag.
+
+        Returns:
+            True if the file should be (re-)indexed.
+        """
+        if full:
+            return True
+
+        # Quick Bloom filter check — if definitely not present, needs indexing
+        if not self.bloom.might_contain(rel_path):
+            return True
+
+        # Look up stored record
+        file_record = self.store.get_file_record_by_path(rel_path)
+        if file_record is None:
+            return True
+
+        # Compare mtime
+        try:
+            mtime = os.path.getmtime(abs_path)
+        except OSError:
+            return False
+
+        if mtime != file_record.last_modified:
+            # mtime changed — check hash to confirm content change
+            try:
+                from mnemosyne.hasher import file_hash
+                current_hash = file_hash(abs_path)
+            except Exception:
+                return True
+            return current_hash != file_record.content_hash
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Core indexing logic
+    # ------------------------------------------------------------------
+
+    def _index_file(self, abs_path: str, rel_path: str) -> tuple[int, int]:
+        """
+        Read, chunk, dedup, store, and embed a single file.
+
+        Returns:
+            ``(chunks_added, chunks_deduped)`` counts.
+        """
+        from mnemosyne.hasher import file_hash, is_binary
+        from mnemosyne.chunkers import get_chunker, detect_language
+
+        # Skip binary files
+        if is_binary(abs_path):
+            return 0, 0
+
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                source = fh.read()
+        except OSError:
+            return 0, 0
+
+        if not source.strip():
+            return 0, 0
+
+        mtime = os.path.getmtime(abs_path)
+        size = os.path.getsize(abs_path)
+        content_hash_val = file_hash(abs_path)
+        language = detect_language(rel_path)
+
+        # Upsert FileRecord
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        file_record = FileRecord(
+            file_id=None,
+            rel_path=rel_path,
+            content_hash=content_hash_val,
+            size_bytes=size,
+            language=language,
+            last_modified=mtime,
+            last_indexed=now_iso,
+            is_deleted=False,
+        )
+        file_id = self.store.upsert_file(file_record)
+
+        # Delete old chunks for this file before re-chunking
+        self.store.delete_chunks_for_file(file_id)
+
+        # Chunk the file
+        chunker = get_chunker(language, self.config)
+        candidates = chunker.chunk(source, language)
+
+        chunks_added = 0
+        chunks_deduped = 0
+
+        for cand in candidates:
+            from mnemosyne.hasher import content_hash as compute_content_hash
+            chunk_hash = compute_content_hash(cand.content)
+
+            # Deduplicate by content hash across the whole index
+            existing_chunk = self.store.get_chunk_by_hash(chunk_hash)
+            if existing_chunk is not None:
+                chunks_deduped += 1
+                continue
+
+            token_count = estimate_tokens(cand.content)
+            chunk = Chunk(
+                chunk_id=None,
+                file_id=file_id,
+                content_hash=chunk_hash,
+                chunk_type=cand.chunk_type,
+                line_start=cand.line_start,
+                line_end=cand.line_end,
+                token_count=token_count,
+                content=cand.content,
+                compressed=None,
+                compression_ratio=None,
+                symbol_name=cand.symbol_name,
+                parent_chunk_id=None,
+            )
+
+            chunk_id = self.store.save_chunk(chunk)
+
+            # Update sparse embedding index (TF-IDF term weights for this chunk)
+            try:
+                terms = self.tfidf.embed(cand.content)
+                self.store.insert_sparse_embedding(chunk_id, terms)
+            except Exception:
+                pass
+
+            # Update Bloom filter with the content hash
+            self.bloom.add(chunk_hash)
+
+            chunks_added += 1
+
+        # Also add the file path to the Bloom filter
+        self.bloom.add(rel_path)
+
+        return chunks_added, chunks_deduped
+
+    def _rebuild_tfidf(self) -> None:
+        """Rebuild TF-IDF vocabulary and re-embed all chunks.
+
+        This must run after all files are ingested so IDF values reflect
+        the full corpus rather than a single file at a time.
+        """
+        rows = self.store.conn.execute(
+            "SELECT chunk_id, content FROM chunks"
+        ).fetchall()
+        if not rows:
+            return
+
+        texts = [r[1] for r in rows]
+
+        # Build vocabulary from the full corpus
+        self.tfidf.build_vocabulary(texts)
+
+        # Re-embed every chunk with the updated IDF values
+        for chunk_id_val, content in rows:
+            terms = self.tfidf.embed(content)
+            if terms:
+                self.store.insert_sparse_embedding(chunk_id_val, terms)
+
+        # Persist vocabulary for future sessions
+        try:
+            self.tfidf._save_vocabulary()
+        except Exception:
+            pass

@@ -1,0 +1,4 @@
+# Mnemosyne — Development Dependencies
+# Pinned to exact versions to prevent redownload and ensure reproducibility
+pytest==8.3.4
+pytest-asyncio==0.25.2

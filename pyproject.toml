@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mnemosyne"
+version = "0.3.0"
+description = "LLM Context Compression and Retrieval Engine"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+authors = [{name = "Cast Rock Innovation L.L.C."}]
+
+[project.urls]
+Homepage = "https://castnettechnology.com"
+Repository = "https://github.com/castnettech/mnemosyne"
+
+[project.scripts]
+mnemosyne = "mnemosyne.cli:main"
+
+[project.optional-dependencies]
+dense = ["onnxruntime>=1.17"]
+dev = ["pytest>=8.3"]
+
+[tool.setuptools.packages.find]
+include = ["mnemosyne*"]
+
+[tool.pytest.ini_options]
+testpaths = ["mnemosyne/tests"]
