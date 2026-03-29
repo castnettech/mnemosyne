@@ -48,3 +48,7 @@ Thumbs.db
 # ── Claude Code workspace ──
 .claude/
 CLAUDE.md
+
+# -- Docs --
+docs/
+!docs/benchmark_meat_detection_query.md
