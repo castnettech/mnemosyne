@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 # FTS5 special characters that must be escaped in query strings
-_FTS5_SPECIAL = re.compile(r'["\'\(\)\*\:\^]')
+_FTS5_SPECIAL = re.compile(r'["\'\(\)\*\:\^\.\,\;\-\?\!\[\]\{\}\<\>\~\`\#\@\&\$\%\+\=\/\\]')
 
 # Common English stopwords that inflate BM25 scores for prose-heavy files
 # (HTML, Markdown) without contributing retrieval signal for code search.
@@ -701,16 +701,27 @@ class RetrievalEngine:
         """
         from collections import defaultdict
 
-        # Accumulate total RRF score per file_id
-        file_scores: dict[int, float] = defaultdict(float)
+        # Hybrid aggregation: max chunk score + damped sum of remaining.
+        # Pure sum lets files with many weak matches (CHANGELOG, test suites)
+        # outrank files with fewer but stronger matches.  Hybrid rewards the
+        # best single chunk (precision) while still valuing broad coverage.
+        file_max: dict[int, float] = defaultdict(float)
+        file_sum: dict[int, float] = defaultdict(float)
         chunk_file_map: dict[int, int] = {}
 
         for chunk_id, rrf_score, _ in fused:
             chunk = self.store.get_chunk(chunk_id)
             if chunk is None:
                 continue
-            file_scores[chunk.file_id] += rrf_score
-            chunk_file_map[chunk_id] = chunk.file_id
+            fid = chunk.file_id
+            file_max[fid] = max(file_max[fid], rrf_score)
+            file_sum[fid] += rrf_score
+            chunk_file_map[chunk_id] = fid
+
+        file_scores = {
+            fid: file_max[fid] + 0.1 * file_sum[fid]
+            for fid in file_max
+        }
 
         # Determine max_files: config override or adaptive formula
         configured = getattr(self.config.retrieval, "max_files", 0)
