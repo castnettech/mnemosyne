@@ -75,6 +75,9 @@ class QuestionResult:
     retrieved_files: list[str]
     retrieved_chunks: list[dict]  # [{"file": str, "symbol_name": str|None, ...}]
     elapsed_ms: float
+    hit_at_3: int = 0
+    relevant_at_5: int = 0
+    mrr_at_10: float = 0.0
 
 
 @dataclass
@@ -279,6 +282,41 @@ class BenchmarkSuite:
         return precision, recall
 
     # ------------------------------------------------------------------
+    # Retrieval ranking metrics
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def compute_hit_at_k(results: list, ground_truth_files: list[str], k: int = 3) -> int:
+        """Return 1 if any of the top-k results match a gold file, else 0."""
+        gt = set(ground_truth_files)
+        for r in results[:k]:
+            fp = r.file_path.replace("\\", "/")
+            if fp in gt:
+                return 1
+        return 0
+
+    @staticmethod
+    def compute_relevant_at_k(results: list, ground_truth_files: list[str], k: int = 5) -> int:
+        """Count how many of the top-k results match any gold file."""
+        gt = set(ground_truth_files)
+        count = 0
+        for r in results[:k]:
+            fp = r.file_path.replace("\\", "/")
+            if fp in gt:
+                count += 1
+        return count
+
+    @staticmethod
+    def compute_mrr_at_k(results: list, ground_truth_files: list[str], k: int = 10) -> float:
+        """Reciprocal rank of the first gold file in top-k results. 0.0 if none found."""
+        gt = set(ground_truth_files)
+        for i, r in enumerate(results[:k]):
+            fp = r.file_path.replace("\\", "/")
+            if fp in gt:
+                return 1.0 / (i + 1)
+        return 0.0
+
+    # ------------------------------------------------------------------
     # Internal methods
     # ------------------------------------------------------------------
 
@@ -328,6 +366,11 @@ class BenchmarkSuite:
         # Chunk-level metrics
         cp, cr = self.measure_chunk_precision(results, q.ground_truth_chunks)
 
+        # Retrieval ranking metrics
+        hit3 = self.compute_hit_at_k(results, q.ground_truth_files, k=3)
+        rel5 = self.compute_relevant_at_k(results, q.ground_truth_files, k=5)
+        mrr10 = self.compute_mrr_at_k(results, q.ground_truth_files, k=10)
+
         # Collect retrieved info for reporting
         retrieved_files = sorted(set(
             r.file_path.replace("\\", "/") for r in results
@@ -352,6 +395,9 @@ class BenchmarkSuite:
             retrieved_files=retrieved_files,
             retrieved_chunks=retrieved_chunks,
             elapsed_ms=elapsed_ms,
+            hit_at_3=hit3,
+            relevant_at_5=rel5,
+            mrr_at_10=mrr10,
         )
 
     def _setup_mnemosyne(self, project_root: str) -> tuple:

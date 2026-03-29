@@ -1,0 +1,54 @@
+{
+  "project": "httpx",
+  "root": "",
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "How does Client.build_request merge client-level headers, cookies, params, and base_url with per-request values?",
+      "category": "cross_file",
+      "ground_truth_files": ["httpx/_client.py"],
+      "budget": 1200,
+      "difficulty": "hard"
+    },
+    {
+      "id": "Q2",
+      "question": "How does HTTPX resolve proxies from an explicit proxy argument versus environment variables?",
+      "category": "cross_file",
+      "ground_truth_files": ["httpx/_client.py", "httpx/_utils.py", "tests/test_utils.py"],
+      "budget": 1200,
+      "difficulty": "hard"
+    },
+    {
+      "id": "Q3",
+      "question": "How does Response.encoding choose a text encoding, and why can setting response.encoding later raise ValueError?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["httpx/_models.py", "tests/models/test_responses.py"],
+      "budget": 1200,
+      "difficulty": "medium"
+    },
+    {
+      "id": "Q4",
+      "question": "How does Response.raise_for_status build its error message for redirects versus 4xx or 5xx responses?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["httpx/_models.py", "tests/models/test_responses.py"],
+      "budget": 1200,
+      "difficulty": "medium"
+    },
+    {
+      "id": "Q5",
+      "question": "How is Timeout initialized from a single default, a tuple, or explicit per-phase values, and when does it raise a ValueError?",
+      "category": "config_setup",
+      "ground_truth_files": ["httpx/_config.py", "tests/test_config.py"],
+      "budget": 1200,
+      "difficulty": "medium"
+    },
+    {
+      "id": "Q6",
+      "question": "How does request-level follow_redirects interact with the client-level default in Client.request and Client.send?",
+      "category": "cross_file",
+      "ground_truth_files": ["httpx/_client.py", "tests/client/test_redirects.py", "tests/test_main.py"],
+      "budget": 1200,
+      "difficulty": "hard"
+    }
+  ]
+}
