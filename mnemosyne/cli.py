@@ -671,6 +671,33 @@ def cmd_gc(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark(args: argparse.Namespace) -> int:
+    """Run the benchmark suite against configured projects."""
+    from mnemosyne.tests.benchmark_suite import BenchmarkSuite, discover_projects
+
+    questions_dir = args.questions_dir
+    if questions_dir is None or not os.path.isdir(questions_dir):
+        # Try relative to mnemosyne package
+        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        questions_dir = os.path.join(pkg_dir, "tests", "benchmark_questions")
+
+    if not os.path.isdir(questions_dir):
+        print("Error: questions directory not found", file=sys.stderr)
+        return 1
+
+    projects = discover_projects(questions_dir)
+    if not projects:
+        print("No benchmark projects found.", file=sys.stderr)
+        return 1
+
+    print(f"Found {len(projects)} project(s)")
+    suite = BenchmarkSuite(projects)
+    results = suite.run_all()
+    report = suite.format_report(results)
+    print(report)
+    return 0
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Manage the Mnemosyne background daemon."""
     import signal as _signal
@@ -864,6 +891,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Report what would be removed without deleting anything",
     )
 
+    # benchmark
+    p_benchmark = sub.add_parser("benchmark", help="Run retrieval-quality benchmarks")
+    p_benchmark.add_argument(
+        "--questions-dir",
+        default=None,
+        help="Directory with benchmark question JSON files (default: built-in)",
+    )
+
     # daemon
     p_daemon = sub.add_parser("daemon", help="Manage the background daemon")
     p_daemon.add_argument(
@@ -908,6 +943,7 @@ def main() -> int:
         "audit": cmd_audit,
         "analytics": cmd_analytics,
         "gc": cmd_gc,
+        "benchmark": cmd_benchmark,
         "daemon": cmd_daemon,
     }
 

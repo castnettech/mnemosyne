@@ -41,3 +41,6 @@ include = ["mnemosyne*"]
 
 [tool.pytest.ini_options]
 testpaths = ["mnemosyne/tests"]
+markers = [
+    "benchmark: Httpx regression benchmark (requires network for first run)",
+]
