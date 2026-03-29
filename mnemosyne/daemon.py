@@ -254,6 +254,7 @@ class MnemosyneDaemon:
         try:
             bloom = BloomFilter.load(bloom_path) if os.path.isfile(bloom_path) else BloomFilter()
         except Exception:
+            logger.warning("Could not load Bloom filter in daemon — creating new")
             bloom = BloomFilter()
 
         ingester = Ingester(
@@ -275,14 +276,14 @@ class MnemosyneDaemon:
         try:
             bloom.save(bloom_path)
         except Exception:
-            pass
+            logger.warning("Could not save Bloom filter in daemon")
         # Rebuild inverted index so queries reflect new content.
         try:
             all_embs = self.store.get_all_sparse_embeddings()
             if all_embs and hasattr(self.tfidf, "build_inverted_index"):
                 self.tfidf.build_inverted_index(all_embs)
         except Exception:
-            pass
+            logger.error("Failed to rebuild inverted index after ingest — queries may return stale results")
         return stats
 
     def _handle_stats(self, params: dict) -> dict:

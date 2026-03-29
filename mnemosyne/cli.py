@@ -19,14 +19,49 @@ delta     — Show changes since the last index run.
 audit     — Print recent audit log entries.
 analytics — Show feedback precision metrics and top-used chunks.
 gc        — Garbage collect orphaned chunks and stale records.
+health    — Report index health with pass/fail indicators.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging(log_format: str, log_level: str) -> None:
+    """Configure root logger based on CLI flags."""
+    level = getattr(logging, log_level, logging.WARNING)
+
+    if log_format == "json":
+        import json as _json
+
+        class JsonFormatter(logging.Formatter):
+            def format(self, record):
+                return _json.dumps({
+                    "ts": self.formatTime(record),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "msg": record.getMessage(),
+                }, default=str)
+
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+
+    root = logging.getLogger("mnemosyne")
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(level)
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +111,7 @@ def _make_bloom(project_root: str):
         try:
             return BloomFilter.load(bloom_path)
         except Exception:
-            pass
+            logger.warning("Could not load Bloom filter from %s — creating new", bloom_path)
     return BloomFilter()
 
 
@@ -85,7 +120,7 @@ def _save_bloom(bloom, project_root: str) -> None:
     try:
         bloom.save(bloom_path)
     except Exception:
-        pass
+        logger.warning("Could not save Bloom filter to %s", bloom_path)
 
 
 def _make_audit(project_root: str):
@@ -665,7 +700,7 @@ def cmd_gc(args: argparse.Namespace) -> int:
     try:
         audit.log("gc", removed_chunks=removed_chunks, stale_files=len(stale_file_ids))
     except Exception:
-        pass
+        logger.warning("Failed to write GC audit entry")
 
     conn.close()
     return 0
@@ -774,6 +809,140 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_health(args: argparse.Namespace) -> int:
+    """Report index health with pass/fail indicators."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    project_root = _find_project_root()
+    if not _require_mnemosyne_dir(project_root):
+        return 1
+
+    config = _load_config(project_root)
+    conn = _open_store_conn(project_root)
+    store = _make_store(conn)
+    report: dict = {}
+
+    # -- Index age --------------------------------------------------------
+    row = conn.execute(
+        "SELECT MAX(last_indexed) FROM files WHERE is_deleted = 0"
+    ).fetchone()
+    last_indexed_str = row[0] if row else None
+    if last_indexed_str:
+        try:
+            last_dt = datetime.fromisoformat(last_indexed_str)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            age_sec = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            hours, rem = divmod(int(max(age_sec, 0)), 3600)
+            mins = rem // 60
+            age_human = f"{hours}h {mins:02d}m" if hours else f"{mins}m"
+            report["index_age"] = age_human
+            report["last_indexed"] = last_dt.isoformat()
+        except (ValueError, TypeError):
+            report["index_age"] = "unknown"
+            report["last_indexed"] = last_indexed_str
+    else:
+        report["index_age"] = "never"
+        report["last_indexed"] = None
+
+    # -- File and chunk counts -------------------------------------------
+    file_count = store.count_files(include_deleted=False)
+    chunk_count = store.count_chunks()
+    total_tokens = store.total_tokens()
+    report["files"] = file_count
+    report["chunks"] = chunk_count
+    report["tokens"] = total_tokens
+
+    # -- Vocabulary size -------------------------------------------------
+    vocab_data = store.load_vocabulary()
+    vocab_size = len(vocab_data["vocabulary"]) if vocab_data and "vocabulary" in vocab_data else 0
+    report["vocabulary"] = vocab_size
+
+    # -- Stale file count ------------------------------------------------
+    stale_count = 0
+    missing_count = 0
+    for rec in store.list_files(include_deleted=False):
+        full_path = os.path.join(project_root, rec.rel_path)
+        if not os.path.isfile(full_path):
+            missing_count += 1
+            continue
+        try:
+            disk_mtime = os.path.getmtime(full_path)
+            if abs(disk_mtime - rec.last_modified) > 1.0:
+                stale_count += 1
+        except OSError:
+            missing_count += 1
+    report["stale_files"] = stale_count
+    report["missing_files"] = missing_count
+
+    # -- FTS5 integrity --------------------------------------------------
+    try:
+        ic_row = conn.execute("PRAGMA integrity_check").fetchone()
+        fts_ok = ic_row and ic_row[0] == "ok"
+    except Exception:
+        fts_ok = False
+    report["fts_integrity"] = "ok" if fts_ok else "FAIL"
+
+    # -- Tokenizer hash --------------------------------------------------
+    try:
+        tfidf = _make_tfidf(store, config)
+        stored_hash = store.get_index_metadata("tokenizer_hash")
+        current_hash = getattr(tfidf, "_compute_tokenizer_hash", lambda: None)()
+        if stored_hash and current_hash:
+            tok_match = stored_hash == current_hash
+            tok_label = "current" if tok_match else "STALE"
+            report["tokenizer"] = tok_label
+            report["tokenizer_hash"] = (current_hash or stored_hash)[:8]
+        elif stored_hash:
+            report["tokenizer"] = "stored-only"
+            report["tokenizer_hash"] = stored_hash[:8]
+        else:
+            report["tokenizer"] = "not built"
+            report["tokenizer_hash"] = None
+    except Exception:
+        report["tokenizer"] = "error"
+        report["tokenizer_hash"] = None
+
+    # -- Daemon status ---------------------------------------------------
+    try:
+        from mnemosyne.daemon import is_daemon_alive, read_pid
+        pid = read_pid(project_root)
+        if pid and is_daemon_alive(project_root):
+            report["daemon"] = f"running (PID {pid})"
+        else:
+            report["daemon"] = "not running"
+    except Exception:
+        report["daemon"] = "unavailable"
+
+    conn.close()
+
+    # -- Output ----------------------------------------------------------
+    if getattr(args, "json", False):
+        print(_json.dumps(report, indent=2))
+    else:
+        print("Mnemosyne Health Check")
+        print("\u2500" * 22)
+        age_line = report["index_age"]
+        if report["last_indexed"]:
+            age_line += f" (last indexed: {report['last_indexed']})"
+        print(f"Index age:       {age_line}")
+        stale_suffix = f", {stale_count} stale" if stale_count else ""
+        miss_suffix = f", {missing_count} missing" if missing_count else ""
+        print(f"Files:           {file_count:,} indexed{stale_suffix}{miss_suffix}")
+        print(f"Chunks:          {chunk_count:,}")
+        print(f"Tokens:          {total_tokens:,}")
+        print(f"Vocabulary:      {vocab_size:,} terms")
+        print(f"FTS5 integrity:  {report['fts_integrity']}")
+        tok_line = report["tokenizer"]
+        if report.get("tokenizer_hash"):
+            tok_line += f" (hash: {report['tokenizer_hash']})"
+        print(f"Tokenizer:       {tok_line}")
+        print(f"Daemon:          {report['daemon']}")
+
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -785,6 +954,18 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mnemosyne",
         description="Mnemosyne — LLM Context Compression & Retrieval Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--log-format",
+        choices=["text", "json"],
+        default="text",
+        help="Log output format (default: text)",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="WARNING",
+        help="Log verbosity (default: WARNING)",
     )
     sub = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -910,6 +1091,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run in foreground (don't fork to background)",
     )
 
+    # health
+    p_health = sub.add_parser("health", help="Report index health with pass/fail indicators")
+    p_health.add_argument(
+        "--json", action="store_true",
+        help="Output as JSON dict (useful for monitoring)",
+    )
+
     return parser
 
 
@@ -928,6 +1116,11 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    _configure_logging(
+        getattr(args, "log_format", "text"),
+        getattr(args, "log_level", "WARNING"),
+    )
+
     if not args.command:
         parser.print_help()
         return 0
@@ -945,6 +1138,7 @@ def main() -> int:
         "gc": cmd_gc,
         "benchmark": cmd_benchmark,
         "daemon": cmd_daemon,
+        "health": cmd_health,
     }
 
     handler = dispatch.get(args.command)
