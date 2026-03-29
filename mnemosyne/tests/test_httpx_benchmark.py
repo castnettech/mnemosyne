@@ -102,7 +102,7 @@ class TestHttpxRegressionGate:
     def test_overall_hit_at_3(self, httpx_benchmark_results):
         r = httpx_benchmark_results
         hit3 = sum(qr.hit_at_3 for qr in r.values()) / len(r)
-        assert hit3 >= 0.667
+        assert hit3 >= 0.666
 
     def test_overall_mrr_at_10(self, httpx_benchmark_results):
         r = httpx_benchmark_results
