@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemosyne-engine"
-version = "0.4.0"
+version = "0.4.1"
 description = "LLM Context Compression and Retrieval Engine — zero dependencies, sub-100ms queries, 40-70% token reduction"
 readme = "README.md"
 requires-python = ">=3.11"
