@@ -338,7 +338,7 @@ class CodeChunker:
                 result.append(
                     ChunkCandidate(
                         content="".join(current_lines),
-                        chunk_type="block",
+                        chunk_type=cand.chunk_type,
                         line_start=abs_start,
                         line_end=abs_end,
                         symbol_name=cand.symbol_name,
@@ -356,7 +356,7 @@ class CodeChunker:
             result.append(
                 ChunkCandidate(
                     content="".join(current_lines),
-                    chunk_type="block",
+                    chunk_type=cand.chunk_type,
                     line_start=abs_start,
                     line_end=abs_end,
                     symbol_name=cand.symbol_name,

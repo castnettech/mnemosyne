@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 # FTS5 special characters that must be escaped in query strings
-_FTS5_SPECIAL = re.compile(r'["\'\(\)\*\:\^]')
+_FTS5_SPECIAL = re.compile(r'["\'\(\)\*\:\^\.\,\;\-\?\!\[\]\{\}\<\>\~\`\#\@\&\$\%\+\=\/\\]')
 
 # Common English stopwords that inflate BM25 scores for prose-heavy files
 # (HTML, Markdown) without contributing retrieval signal for code search.
@@ -159,21 +159,43 @@ class RetrievalEngine:
         prefetch_ids = self._prefetch_check(query_text) if self.prefetcher else set()
 
         # 5. RRF fusion — all signals combined
+        # Strip chunk_type from symbol triples for RRF (expects 2-tuples)
+        symbol_pairs = [(cid, score) for cid, score, _ in symbol_results] if symbol_results else []
         fused = self._rrf_fuse(
             bm25_results, vector_results, usage_scores, prefetch_ids,
-            symbol_results=symbol_results,
+            symbol_results=symbol_pairs,
         )
 
-        # 5a. Symbol match multiplier — chunks whose symbol_name matches a
-        #     query term get a 3x boost. This makes exact code-symbol matches
-        #     decisively outrank generic term matches.
+        # 5a. Symbol match multiplier — purely additive over v0.3.0.
+        #     All symbol matches get the same 3x boost as before.
+        #     PascalCase class-name mode adds a 4x boost for class-type
+        #     chunks only — this is the ONLY new behaviour.
         if symbol_results:
-            symbol_ids = {cid for cid, score in symbol_results if score >= 0.5}
-            if symbol_ids:
+            symbol_info: dict[int, tuple[float, str]] = {}
+            for cid, score, ctype in symbol_results:
+                if score >= 0.5:
+                    symbol_info[cid] = (score, ctype)
+
+            # Detect class-name query terms -> class-name mode.
+            # Triggers on PascalCase (e.g., "AsyncClient") or TitleCase
+            # (e.g., "Timeout", "Response") — both are class conventions.
+            query_tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", query_text)
+            class_name_mode = any(
+                t[0].isupper() and re.search(r"[a-z]", t) and (
+                    re.search(r"[A-Z]", t[1:])  # PascalCase: AsyncClient
+                    or t[0].isupper() and t[1:].islower() and len(t) >= 4  # TitleCase: Timeout
+                )
+                for t in query_tokens
+            )
+
+            if symbol_info:
                 boosted = []
                 for cid, rrf, scores in fused:
-                    if cid in symbol_ids:
-                        new_rrf = rrf * 3.0
+                    if cid in symbol_info:
+                        _, ctype = symbol_info[cid]
+                        # 3x for all (preserves v0.3.0); 4x for class + PascalCase
+                        boost = 4.0 if (class_name_mode and ctype == "class") else 3.0
+                        new_rrf = rrf * boost
                         new_scores = dict(scores)
                         new_scores["rrf"] = new_rrf
                         boosted.append((cid, new_rrf, new_scores))
@@ -271,7 +293,7 @@ class RetrievalEngine:
         except Exception:
             return []
 
-    def _symbol_search(self, query: str) -> list[tuple[int, float]]:
+    def _symbol_search(self, query: str) -> list[tuple[int, float, str]]:
         """
         Search for chunks whose ``symbol_name`` matches query terms.
 
@@ -280,7 +302,7 @@ class RetrievalEngine:
         normalised score of 1.0 (exact match) or 0.5 (partial/prefix match).
 
         Returns:
-            List of ``(chunk_id, score)`` pairs.
+            List of ``(chunk_id, score, chunk_type)`` triples.
         """
         # Extract potential identifiers from the query
         identifiers = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", query)
@@ -303,10 +325,10 @@ class RetrievalEngine:
             return []
 
         # Query the database for chunks with matching symbol names
-        results: list[tuple[int, float]] = []
+        results: list[tuple[int, float, str]] = []
         try:
             rows = self.store.conn.execute(
-                "SELECT chunk_id, symbol_name FROM chunks WHERE symbol_name IS NOT NULL"
+                "SELECT chunk_id, symbol_name, chunk_type FROM chunks WHERE symbol_name IS NOT NULL"
             ).fetchall()
         except Exception:
             return []
@@ -318,7 +340,7 @@ class RetrievalEngine:
 
             # Check for exact match
             if symbol in search_terms:
-                results.append((int(row["chunk_id"]), 1.0))
+                results.append((int(row["chunk_id"]), 1.0, row["chunk_type"] or ""))
                 continue
 
             # Check for prefix/component overlap
@@ -326,7 +348,7 @@ class RetrievalEngine:
             if overlap:
                 # Score by fraction of matching components
                 score = len(overlap) / max(len(symbol_parts), len(search_terms)) * 0.8
-                results.append((int(row["chunk_id"]), score))
+                results.append((int(row["chunk_id"]), score, row["chunk_type"] or ""))
 
         return results
 
@@ -679,16 +701,27 @@ class RetrievalEngine:
         """
         from collections import defaultdict
 
-        # Accumulate total RRF score per file_id
-        file_scores: dict[int, float] = defaultdict(float)
+        # Hybrid aggregation: max chunk score + damped sum of remaining.
+        # Pure sum lets files with many weak matches (CHANGELOG, test suites)
+        # outrank files with fewer but stronger matches.  Hybrid rewards the
+        # best single chunk (precision) while still valuing broad coverage.
+        file_max: dict[int, float] = defaultdict(float)
+        file_sum: dict[int, float] = defaultdict(float)
         chunk_file_map: dict[int, int] = {}
 
         for chunk_id, rrf_score, _ in fused:
             chunk = self.store.get_chunk(chunk_id)
             if chunk is None:
                 continue
-            file_scores[chunk.file_id] += rrf_score
-            chunk_file_map[chunk_id] = chunk.file_id
+            fid = chunk.file_id
+            file_max[fid] = max(file_max[fid], rrf_score)
+            file_sum[fid] += rrf_score
+            chunk_file_map[chunk_id] = fid
+
+        file_scores = {
+            fid: file_max[fid] + 0.1 * file_sum[fid]
+            for fid in file_max
+        }
 
         # Determine max_files: config override or adaptive formula
         configured = getattr(self.config.retrieval, "max_files", 0)
