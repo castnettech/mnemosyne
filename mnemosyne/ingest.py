@@ -101,7 +101,7 @@ class Ingester:
 
         # Resolve file list
         if paths:
-            file_list = [os.path.abspath(p) for p in paths if os.path.isfile(p)]
+            file_list = self._resolve_paths(paths)
         else:
             file_list = self._scan_files()
 
@@ -170,6 +170,81 @@ class Ingester:
         return stats
 
     # ------------------------------------------------------------------
+    # Path resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_paths(self, paths: list[str]) -> list[str]:
+        """
+        Resolve user-supplied paths to a deduplicated list of indexable files.
+
+        For each path in *paths*:
+
+        - Relative paths are joined to ``self.root`` before resolving.
+        - Absolute paths are resolved directly.
+        - Symlinks are resolved with ``os.path.realpath()``.
+        - Paths that resolve outside the project root raise ``ValueError``.
+        - Files are included only if they pass extension and size filters.
+        - Directories are walked using ``_scan_dir()`` (same logic as full scan).
+        - Non-existent paths are silently skipped.
+
+        Args:
+            paths: Raw paths from the caller (CLI arguments, API, etc.).
+
+        Returns:
+            Deduplicated list of absolute file paths.
+
+        Raises:
+            ValueError: If any path resolves outside the project root.
+        """
+        supported_exts: set[str] = set(self.config.general.supported_extensions)
+        max_size_bytes: int = self.config.general.max_file_size_kb * 1024
+
+        seen: set[str] = set()
+        results: list[str] = []
+
+        for p in paths:
+            # Resolve: join relative paths to project root, then realpath
+            if os.path.isabs(p):
+                real = os.path.realpath(p)
+            else:
+                real = os.path.realpath(os.path.join(self.root, p))
+
+            # Containment check — must be within project root
+            if real != self.root and not real.startswith(self.root + os.sep):
+                raise ValueError(f"Path '{p}' resolves outside project root")
+
+            if not os.path.exists(real):
+                continue
+
+            if os.path.isdir(real):
+                for f in self._scan_dir(real):
+                    if f not in seen:
+                        seen.add(f)
+                        results.append(f)
+            elif os.path.isfile(real):
+                # Apply the same extension and size filters as _scan_dir
+                rel_path = os.path.relpath(real, self.root).replace(os.sep, "/")
+                if self._should_ignore(rel_path):
+                    continue
+
+                _, ext = os.path.splitext(real)
+                if ext.lower() not in supported_exts:
+                    continue
+
+                try:
+                    size = os.path.getsize(real)
+                except OSError:
+                    continue
+                if size > max_size_bytes:
+                    continue
+
+                if real not in seen:
+                    seen.add(real)
+                    results.append(real)
+
+        return results
+
+    # ------------------------------------------------------------------
     # File scanning
     # ------------------------------------------------------------------
 
@@ -179,12 +254,29 @@ class Ingester:
 
         Applies extension filter, size limit, and ignore patterns.
         """
+        return self._scan_dir(self.root)
+
+    def _scan_dir(self, root_dir: str) -> list[str]:
+        """
+        Walk *root_dir* and return absolute paths of candidate files.
+
+        Applies extension filter, size limit, and ignore patterns.  All
+        relative-path checks use ``self.root`` as the base so that ignore
+        patterns behave consistently regardless of which sub-directory is
+        being scanned.
+
+        Args:
+            root_dir: Absolute path of the directory to walk.
+
+        Returns:
+            List of absolute file paths that pass all filters.
+        """
         supported_exts: set[str] = set(self.config.general.supported_extensions)
         max_size_bytes: int = self.config.general.max_file_size_kb * 1024
 
         results: list[str] = []
 
-        for dirpath, dirnames, filenames in os.walk(self.root):
+        for dirpath, dirnames, filenames in os.walk(root_dir):
             rel_dir = os.path.relpath(dirpath, self.root).replace(os.sep, "/")
 
             # Prune ignored directories in-place to prevent descent

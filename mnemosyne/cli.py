@@ -202,7 +202,12 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("[dry-run] Scanning files without writing...")
 
-    stats = ingester.ingest(paths=paths, full=args.full, dry_run=args.dry_run)
+    try:
+        stats = ingester.ingest(paths=paths, full=args.full, dry_run=args.dry_run)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        conn.close()
+        return 1
 
     if not args.dry_run:
         _save_bloom(bloom, project_root)
@@ -766,7 +771,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest = sub.add_parser("ingest", help="Index files into the knowledge base")
     p_ingest.add_argument(
         "paths", nargs="*",
-        help="Specific file paths to index (default: entire project)",
+        help="Files or directories to index (default: entire project)",
     )
     p_ingest.add_argument(
         "--full", action="store_true",
