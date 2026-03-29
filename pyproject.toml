@@ -3,17 +3,32 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mnemosyne"
+name = "mnemosyne-engine"
 version = "0.3.0"
-description = "LLM Context Compression and Retrieval Engine"
+description = "LLM Context Compression and Retrieval Engine — zero dependencies, sub-100ms queries, 40-70% token reduction"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 authors = [{name = "Cast Rock Innovation L.L.C."}]
+keywords = ["llm", "context", "compression", "retrieval", "token", "mnemosyne", "code-search", "bm25", "tfidf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
+]
 
 [project.urls]
 Homepage = "https://castnettechnology.com"
 Repository = "https://github.com/castnettech/mnemosyne"
+Documentation = "https://github.com/castnettech/mnemosyne#readme"
+Issues = "https://github.com/castnettech/mnemosyne/issues"
 
 [project.scripts]
 mnemosyne = "mnemosyne.cli:main"
