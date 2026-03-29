@@ -372,5 +372,50 @@ class TestDaemonJsonRpcId(_DaemonTestBase):
         self.assertIsNotNone(resp.get("error"))
 
 
+class TestDaemonSecurity(_DaemonTestBase):
+    """Security tests for P1 (socket permissions) and P2 (path validation)."""
+
+    def test_socket_permissions_owner_only(self):
+        """P1: Daemon socket should be chmod 0600 — owner read/write only."""
+        self._start_daemon_in_thread()
+        mode = os.stat(self.daemon._socket_path).st_mode & 0o777
+        self.assertEqual(mode, 0o600, f"Socket permissions should be 0600, got {oct(mode)}")
+
+    def test_ingest_rejects_path_outside_project_root(self):
+        """P2: Ingest via daemon must reject paths outside the project root."""
+        self._start_daemon_in_thread()
+        # Ingest a file and do initial indexing first
+        self._send_request({"method": "ingest", "params": {}})
+        # Now try to ingest /etc/passwd — must be rejected
+        resp = self._send_request({
+            "method": "ingest",
+            "params": {"paths": ["/etc/passwd"]},
+        })
+        self.assertIsNotNone(resp.get("error"), "Ingest of /etc/passwd should be rejected")
+        self.assertIn("outside project root", resp["error"]["message"])
+
+    def test_ingest_rejects_parent_directory_escape(self):
+        """P2: Ingest via daemon must reject .. traversal."""
+        self._start_daemon_in_thread()
+        resp = self._send_request({
+            "method": "ingest",
+            "params": {"paths": ["../../../etc/passwd"]},
+        })
+        self.assertIsNotNone(resp.get("error"), "Ingest of ../../../etc/passwd should be rejected")
+        self.assertIn("outside project root", resp["error"]["message"])
+
+    def test_ingest_accepts_valid_path_within_root(self):
+        """P2: Ingest via daemon should accept valid paths within project root."""
+        self._start_daemon_in_thread()
+        resp = self._send_request({
+            "method": "ingest",
+            "params": {"paths": ["src/auth.py"]},
+        })
+        # Should succeed — no error
+        self.assertIsNone(resp.get("error"), f"Valid path should succeed: {resp.get('error')}")
+        result = resp.get("result", {})
+        self.assertGreaterEqual(result.get("files_scanned", 0), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,8 @@ class MnemosyneDaemon:
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind(self._socket_path)
+        # P1: Restrict socket to owner only — prevents unauthorized local access
+        os.chmod(self._socket_path, 0o600)
         self._sock.listen(5)
         self._sock.setblocking(False)
 
@@ -259,7 +261,17 @@ class MnemosyneDaemon:
             bloom=bloom, tfidf_backend=self.tfidf,
             audit=AuditLog(os.path.join(self._mnemosyne_dir, "audit.log")),
         )
-        stats = ingester.ingest(paths=params.get("paths"), full=params.get("full", False), dry_run=False)
+        # P2: Validate all ingest paths are within the project root
+        paths = params.get("paths")
+        if paths:
+            validated = []
+            for p in paths:
+                real = os.path.realpath(os.path.join(self.project_root, p))
+                if not real.startswith(self.project_root + os.sep) and real != self.project_root:
+                    raise ValueError(f"Path '{p}' resolves outside project root — rejected.")
+                validated.append(real)
+            paths = validated
+        stats = ingester.ingest(paths=paths, full=params.get("full", False), dry_run=False)
         try:
             bloom.save(bloom_path)
         except Exception:
