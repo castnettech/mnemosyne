@@ -459,11 +459,13 @@ Implementation: `hasher.py` — `content_hash`, `file_hash`; `bloom.py` — `Blo
 ### Installation
 
 ```bash
-# pip-installable (pyproject.toml included)
-pip install -e /path/to/mnemosyne
+# Install from PyPI
+pip install mnemosyne-engine
 
-# Or run directly as a module
-python -m mnemosyne --help
+# Or install from source (for development)
+git clone https://github.com/castnettech/mnemosyne.git
+cd mnemosyne
+pip install -e .
 ```
 
 ### Initialize a Project
@@ -1059,7 +1061,7 @@ Mnemosyne is built entirely on the **Python 3.11+ standard library**. No externa
 
 The zero-dependency design is a deliberate constraint, not an oversight. It means:
 
-- **Installation is one command** — `pip install -e .` with no conflict resolution.
+- **Installation is one command** — `pip install mnemosyne-engine` with no conflict resolution.
 - **Deployment is trivial** — copy the directory, run Python.
 - **Security surface is minimal** — no third-party supply chain to audit.
 - **Compatibility is guaranteed** — any Python 3.11+ environment works.
@@ -1181,7 +1183,7 @@ Full algorithm details, design rationale, and academic paper references are in *
 - **Compression Safety Net** -- Control flow lines preserved, 70% max prune ratio, strict mode for symbol chunks.
 - **Analytics CLI** -- `mnemosyne analytics` shows precision-at-k from feedback events and top-used chunks.
 - **Benchmark Suite** -- Multi-project runner with chunk-level precision measurement.
-- **pip-installable Packaging** -- `pyproject.toml` with `pip install -e .` support.
+- **PyPI Package** -- `pip install mnemosyne-engine` (import name remains `mnemosyne`).
 - **ALGORITHMS.md** -- Full algorithm documentation with paper references.
 
 ### Planned
