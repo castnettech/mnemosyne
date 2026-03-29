@@ -4,7 +4,7 @@
 
 Mnemosyne is a production-grade LLM context compression and retrieval engine built entirely on the Python standard library. It solves the single biggest bottleneck in LLM agent effectiveness: context window waste. Rather than naively stuffing raw file contents into a prompt, Mnemosyne indexes your codebase, compresses each chunk intelligently, ranks candidates by value per token, and delivers exactly the right context within whatever budget you set — in under 100 milliseconds.
 
-Version: **0.3.0** | License: AGPL-3.0 ([Commercial license available](COMMERCIAL-LICENSE.md)) | Requires: Python 3.11+ | Dependencies: **zero** (optional: `onnxruntime` for future dense embeddings)
+Version: **0.4.0** | License: AGPL-3.0 ([Commercial license available](COMMERCIAL-LICENSE.md)) | Requires: Python 3.11+ | Dependencies: **zero** (optional: `onnxruntime` for future dense embeddings)
 
 ---
 
@@ -259,10 +259,10 @@ Query String  +  Token Budget
 cli.py  ──> ingest.py  ──> chunkers/  ──> code_chunker.py   (Python AST)
         │              ├── hasher.py          js_chunker.py    (JS/TS regex+brace)
         │              ├── store.py           brace_chunker.py (shared base class)
-        │              ├── bloom.py           go_chunker.py    (Go, v0.3.0)
-        │              ├── embeddings/ ──>    csharp_chunker.py(C#, v0.3.0)
-        │              └── audit.py           rust_chunker.py  (Rust, v0.3.0)
-        │                   └──>              java_chunker.py  (Java/Kotlin, v0.3.0)
+        │              ├── bloom.py           go_chunker.py    (Go, v0.4.0)
+        │              ├── embeddings/ ──>    csharp_chunker.py(C#, v0.4.0)
+        │              └── audit.py           rust_chunker.py  (Rust, v0.4.0)
+        │                   └──>              java_chunker.py  (Java/Kotlin, v0.4.0)
         │                   tfidf_backend.py  text_chunker.py
         │                                     generic_chunker.py
         │
@@ -273,7 +273,7 @@ cli.py  ──> ingest.py  ──> chunkers/  ──> code_chunker.py   (Python 
         │               └── compress.py ──> density.py
         │                               └── embeddings/tfidf_backend.py
         │
-        ├── daemon.py (JSON-RPC Unix socket server, v0.3.0)
+        ├── daemon.py (JSON-RPC Unix socket server, v0.4.0)
         ├── cache.py  (ARCCache — standalone)
         ├── tiers.py  (TierManager — ARC <-> Store bridge)
         ├── delta.py  (DeltaTracker)
@@ -1018,7 +1018,7 @@ The compression ratio varies by content type. Code with high proportions of impo
 
 On a typical Python project with shared utilities and copy-paste patterns: **8–15% of chunks** are deduplicated on first index. This directly reduces index size, query noise, and retrieval ranking interference from repeated content.
 
-### Benchmark Suite (v0.3.0)
+### Benchmark Suite (v0.4.0)
 
 A multi-project benchmark runner (`tests/benchmark_suite.py`) measures chunk-level precision across multiple codebases. It indexes each project, runs a set of queries against known-relevant chunks, and reports precision-at-k scores. The `mnemosyne analytics` CLI command provides the same precision metrics from recorded feedback events in production.
 
@@ -1171,7 +1171,7 @@ Full algorithm details, design rationale, and academic paper references are in *
 
 ## Future Roadmap
 
-### Completed in v0.3.0
+### Completed in v0.4.0
 
 - **Standalone CLI** -- Mnemosyne is a CLI-only tool by design. No MCP server, no protocol bridges. Consumers use `mnemosyne query/ingest/stats` commands or the Python API directly.
 - **JSON-RPC Daemon Mode** -- `mnemosyne daemon start/stop/status` runs a persistent Unix-domain-socket server keeping SQLite, TF-IDF, analytics, and prefetcher warm. Eliminates cold-start overhead for high-throughput workloads.
@@ -1196,7 +1196,7 @@ The architecture is already prepared: the `embeddings/__init__.py` factory patte
 
 #### Tree-sitter Multi-Language AST Parsing
 
-The brace-based chunkers added in v0.3.0 provide good structural extraction for Go, C#, Rust, Java, and Kotlin. Tree-sitter would provide a uniform, production-grade parsing interface for 100+ languages, replacing regex patterns with true AST-based chunking where higher precision is needed (e.g., C/C++, Ruby, Swift).
+The brace-based chunkers added in v0.4.0 provide good structural extraction for Go, C#, Rust, Java, and Kotlin. Tree-sitter would provide a uniform, production-grade parsing interface for 100+ languages, replacing regex patterns with true AST-based chunking where higher precision is needed (e.g., C/C++, Ruby, Swift).
 
 #### Hierarchical Summary Trees
 
