@@ -408,6 +408,43 @@ class Store:
         return [(int(r["chunk_id"]), json.loads(r["term_weights"])) for r in rows]
 
     # ======================================================================
+    # Dense embeddings
+    # ======================================================================
+
+    def insert_dense_embedding(
+        self,
+        chunk_id: int,
+        vector: bytes,
+        dim: int,
+        model_tag: str = "minilm-l6-code",
+    ) -> None:
+        """Upsert a dense vector (packed float32 LE bytes) into the embeddings table."""
+        with self._with_write_lock():
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO embeddings (chunk_id, vector, dim, model_tag) "
+                    "VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(chunk_id) DO UPDATE SET "
+                    "vector=excluded.vector, dim=excluded.dim, model_tag=excluded.model_tag",
+                    (chunk_id, vector, dim, model_tag),
+                )
+
+    def get_dense_embeddings_batch(self, chunk_ids: list[int]) -> dict[int, bytes]:
+        """Return {chunk_id: packed_vector_bytes} for the given IDs.
+
+        If *chunk_ids* is empty, returns an empty dict (use a direct query
+        on the embeddings table for a full scan).
+        """
+        if not chunk_ids:
+            return {}
+        placeholders = ",".join("?" * len(chunk_ids))
+        rows = self.conn.execute(
+            f"SELECT chunk_id, vector FROM embeddings WHERE chunk_id IN ({placeholders})",
+            chunk_ids,
+        ).fetchall()
+        return {int(r["chunk_id"]): r["vector"] for r in rows}
+
+    # ======================================================================
     # Vocabulary
     # ======================================================================
 

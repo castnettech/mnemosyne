@@ -42,6 +42,15 @@ _STOPWORDS: frozenset[str] = frozenset({
     "are", "is", "was", "were", "been", "has", "had", "being",
 })
 
+# Words that are stopwords in English but carry structural meaning in code
+# identifiers (e.g. "get" in getUserById, "is" in isEnabled).  Used to relax
+# stopword filtering when splitting symbol names — the query side still uses
+# the full _STOPWORDS set since queries are natural language.
+_CODE_KEEP: frozenset[str] = frozenset({
+    "get", "set", "for", "is", "has", "not", "can", "use",
+    "any", "all", "new", "add", "put",
+})
+
 
 def _escape_fts5(query: str) -> str:
     """Escape characters that have special meaning in FTS5 MATCH queries.
@@ -90,12 +99,14 @@ class RetrievalEngine:
         config,
         analytics: "Analytics | None" = None,
         prefetcher: "Prefetcher | None" = None,
+        dense_backend=None,
     ) -> None:
         self.store = store
         self.tfidf = tfidf_backend
         self.config = config
         self.analytics = analytics
         self.prefetcher = prefetcher
+        self.dense = dense_backend
 
         # Ensure the TF-IDF inverted index is populated from persisted
         # embeddings so vector search works immediately.
@@ -152,6 +163,15 @@ class RetrievalEngine:
         # 2b. Symbol name search — match query terms against chunk symbol_name
         symbol_results = self._symbol_search(query_text)
 
+        # 2c. Dense semantic search (optional, requires onnxruntime)
+        # Use BM25+TF-IDF candidate IDs to limit dense search scope
+        candidate_ids = list(
+            {cid for cid, _ in bm25_results} | {cid for cid, _ in vector_results}
+        )
+        dense_results = self._dense_search(
+            query_text, candidate_ids=candidate_ids or None
+        )
+
         # 3. Usage frequency scores
         usage_scores = self._usage_scores() if self.analytics else {}
 
@@ -164,6 +184,7 @@ class RetrievalEngine:
         fused = self._rrf_fuse(
             bm25_results, vector_results, usage_scores, prefetch_ids,
             symbol_results=symbol_pairs,
+            dense_results=dense_results,
         )
 
         # 5a. Symbol match multiplier — purely additive over v0.3.0.
@@ -208,7 +229,15 @@ class RetrievalEngine:
         fused = self._filename_boost(fused, query_text)
 
         # 5c. File-level filter: keep only chunks from the top-scoring files.
-        fused = self._file_level_filter(fused)
+        #     Files with strong symbol matches get guaranteed slots.
+        symbol_file_ids: set[int] = set()
+        if symbol_results:
+            for cid, score, _ in symbol_results:
+                if score >= 0.5:
+                    chunk = self.store.get_chunk(cid)
+                    if chunk:
+                        symbol_file_ids.add(chunk.file_id)
+        fused = self._file_level_filter(fused, symbol_file_ids=symbol_file_ids)
 
         # 5d. Import/namespace graph: inject up to 2 additional files that
         #     are dependencies of the surviving files.  Runs AFTER the filter
@@ -293,6 +322,35 @@ class RetrievalEngine:
         except Exception:
             return []
 
+    def _dense_search(
+        self,
+        query: str,
+        candidate_ids: list[int] | None = None,
+    ) -> list[tuple[int, float]]:
+        """Dense semantic search via embedding cosine similarity.
+
+        Uses the optional dense backend (ONNX model).  Returns an empty
+        list when the backend is not configured or unavailable.
+
+        Args:
+            query:         The user query string.
+            candidate_ids: Pre-filtered chunk IDs to limit the search scope
+                           (from BM25/TF-IDF).  Keeps latency low.
+        """
+        if self.dense is None:
+            return []
+        try:
+            query_vec = self.dense.embed(query)
+            if query_vec is None:
+                return []
+            return self.dense.search(
+                query_vec,
+                top_k=self.config.retrieval.max_results * 3,
+                candidate_ids=candidate_ids,
+            )
+        except Exception:
+            return []
+
     def _symbol_search(self, query: str) -> list[tuple[int, float, str]]:
         """
         Search for chunks whose ``symbol_name`` matches query terms.
@@ -333,10 +391,16 @@ class RetrievalEngine:
         except Exception:
             return []
 
+        # Relaxed stopword set for symbol name components: code-structural
+        # prefixes (get, set, is, has, ...) are meaningful in identifiers.
+        _symbol_stopwords = _STOPWORDS - _CODE_KEEP
+
         for row in rows:
             symbol = row["symbol_name"].lower()
-            # Split the symbol name into components too
-            symbol_parts = re.sub(r"([a-z])([A-Z])", r"\1_\2", row["symbol_name"]).lower().split("_")
+            # Split the symbol name into components, filtering only
+            # non-code stopwords so structural prefixes survive.
+            raw_parts = re.sub(r"([a-z])([A-Z])", r"\1_\2", row["symbol_name"]).lower().split("_")
+            symbol_parts = [p for p in raw_parts if p not in _symbol_stopwords]
 
             # Check for exact match
             if symbol in search_terms:
@@ -387,6 +451,7 @@ class RetrievalEngine:
         usage: dict[int, float],
         prefetch_ids: set[int],
         symbol_results: list[tuple[int, float]] | None = None,
+        dense_results: list[tuple[int, float]] | None = None,
     ) -> list[tuple[int, float, dict]]:
         """
         Fuse all search signals via Reciprocal Rank Fusion.
@@ -411,6 +476,11 @@ class RetrievalEngine:
             "vector": vector,
             "usage": usage_list,
         }
+
+        # Dense semantic search — optional 6th signal
+        if dense_results:
+            score_lists["dense"] = dense_results
+            weights["dense"] = getattr(cfg, "dense_weight", 0.3) or 0.3
 
         # Symbol name matches — highest-confidence signal
         if symbol_results:
@@ -686,59 +756,92 @@ class RetrievalEngine:
     def _file_level_filter(
         self,
         fused: list[tuple[int, float, dict]],
+        symbol_file_ids: set[int] | None = None,
     ) -> list[tuple[int, float, dict]]:
         """
-        Keep only chunks from the top *max_files* files by aggregate RRF score.
+        Two-pass file filter with soft fallback.
 
-        ``max_files`` is determined adaptively based on the number of unique
-        files in the fused results: ``min(max(3, n_files // 3), 8)``.  This
-        scales from 3 (small projects) to 8 (large corpora).  If
-        ``config.retrieval.max_files`` is set to a positive value, that
-        override is used instead.
+        **Pass 1 (aggregate):** Score each file by its best chunk score
+        plus a diversity tiebreaker.  Select the top *max_files* files.
+        Files with strong symbol matches get guaranteed slots.
+
+        **Pass 2 (chunk-qualified):** Any file that contains a chunk in
+        the top-50 by individual RRF score also survives, even if the
+        file's aggregate score is low.  Chunks from these files receive
+        a 0.7x score penalty (they earned their slot via one strong
+        chunk, not broad coverage).
+
+        This prevents small files with a single strong match from being
+        eliminated by large files with many weak matches.
 
         Returns:
             Filtered list of ``(chunk_id, rrf_score, source_scores)``.
         """
         from collections import defaultdict
 
-        # Hybrid aggregation: max chunk score + damped sum of remaining.
-        # Pure sum lets files with many weak matches (CHANGELOG, test suites)
-        # outrank files with fewer but stronger matches.  Hybrid rewards the
-        # best single chunk (precision) while still valuing broad coverage.
+        # Score each file by its best chunk only.
         file_max: dict[int, float] = defaultdict(float)
-        file_sum: dict[int, float] = defaultdict(float)
+        file_signal_count: dict[int, int] = defaultdict(int)
         chunk_file_map: dict[int, int] = {}
 
-        for chunk_id, rrf_score, _ in fused:
+        for chunk_id, rrf_score, source_scores in fused:
             chunk = self.store.get_chunk(chunk_id)
             if chunk is None:
                 continue
             fid = chunk.file_id
             file_max[fid] = max(file_max[fid], rrf_score)
-            file_sum[fid] += rrf_score
+            signals = sum(1 for v in source_scores.values() if v > 0)
+            file_signal_count[fid] = max(file_signal_count[fid], signals)
             chunk_file_map[chunk_id] = fid
 
         file_scores = {
-            fid: file_max[fid] + 0.1 * file_sum[fid]
+            fid: file_max[fid] + 0.02 * file_signal_count[fid]
             for fid in file_max
         }
 
-        # Determine max_files: config override or adaptive formula
+        # --- Pass 1: top-N files by aggregate score ---
         configured = getattr(self.config.retrieval, "max_files", 0)
         if configured and configured > 0:
             max_files = configured
         else:
             n_unique = len(file_scores)
-            max_files = min(max(3, n_unique // 3), 8)
+            max_files = min(max(4, n_unique // 3), 10)
 
-        # Select the top-scoring files
-        top_files = sorted(file_scores.items(), key=lambda x: x[1], reverse=True)
-        top_file_ids = {fid for fid, _ in top_files[:max_files]}
+        promoted = (symbol_file_ids or set()) & set(file_scores.keys())
+        ranked = sorted(file_scores.items(), key=lambda x: x[1], reverse=True)
+        top_file_ids = set(promoted)
+        for fid, _ in ranked:
+            if len(top_file_ids) >= max_files:
+                break
+            if fid not in top_file_ids:
+                top_file_ids.add(fid)
 
-        return [
-            (cid, rrf, scores) for cid, rrf, scores in fused
-            if chunk_file_map.get(cid) in top_file_ids
-        ]
+        # --- Pass 2: chunk-qualified files from top-50 individual chunks ---
+        qualify_k = 50
+        top_chunks = sorted(fused, key=lambda x: x[1], reverse=True)[:qualify_k]
+        chunk_qualified = {
+            chunk_file_map[cid]
+            for cid, _, _ in top_chunks
+            if cid in chunk_file_map
+        }
+
+        # Build result: full score for top-N files, 0.7x for chunk-qualified
+        surviving_files = top_file_ids | chunk_qualified
+        soft_penalty = 0.7
+        result = []
+        for cid, rrf, scores in fused:
+            fid = chunk_file_map.get(cid)
+            if fid is None:
+                continue
+            if fid in top_file_ids:
+                result.append((cid, rrf, scores))
+            elif fid in chunk_qualified:
+                penalized = rrf * soft_penalty
+                new_scores = dict(scores)
+                new_scores["rrf"] = penalized
+                result.append((cid, penalized, new_scores))
+
+        return result
 
     def _cost_model_rank(
         self,

@@ -33,4 +33,27 @@ def get_backend(config: "Config", store=None) -> TFIDFBackend:
     return TFIDFBackend(config, store)
 
 
-__all__ = ["TFIDFBackend", "get_backend"]
+def get_dense_backend(config: "Config", store=None, model_dir: str | None = None):
+    """Return the dense embedding backend if configured and available.
+
+    Args:
+        config:    Mnemosyne :class:`~mnemosyne.config.Config` instance.
+        store:     Optional persistent store for embedding CRUD.
+        model_dir: Directory to cache model files.
+
+    Returns:
+        A :class:`~mnemosyne.embeddings.dense_backend.DenseBackend` instance,
+        or ``None`` if the backend is not configured or onnxruntime is not
+        installed.
+    """
+    dense_model = getattr(config.embedding, "dense_model", None)
+    if not dense_model:
+        return None
+    try:
+        from mnemosyne.embeddings.dense_backend import DenseBackend
+        return DenseBackend(config, store, model_dir=model_dir)
+    except ImportError:
+        return None
+
+
+__all__ = ["TFIDFBackend", "get_backend", "get_dense_backend"]
