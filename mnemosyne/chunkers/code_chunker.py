@@ -227,13 +227,21 @@ class CodeChunker:
         source_lines: list[str],
         parent_symbol: str | None = None,
     ) -> list[ChunkCandidate]:
-        """Create a ChunkCandidate for a function/method node."""
-        content = "".join(source_lines[node.lineno - 1 : node.end_lineno])
+        """Create a ChunkCandidate for a function/method node.
+
+        When the function has decorators, the extracted content starts at
+        the first decorator line so that searchable text like CLI help
+        strings and callback references is included in the chunk.
+        """
+        start_line = node.lineno
+        if node.decorator_list:
+            start_line = node.decorator_list[0].lineno
+        content = "".join(source_lines[start_line - 1 : node.end_lineno])
         return [
             ChunkCandidate(
                 content=content,
                 chunk_type="function",
-                line_start=node.lineno,
+                line_start=start_line,
                 line_end=node.end_lineno,
                 symbol_name=node.name,
                 parent_symbol=parent_symbol,
@@ -251,13 +259,19 @@ class CodeChunker:
         The class chunk contains the full class text so that the class
         signature and docstring are always retrievable.  Method chunks allow
         granular retrieval when only a specific method is needed.
+
+        When the class has decorators (e.g. ``@dataclass``), the extracted
+        content starts at the first decorator line.
         """
-        class_content = "".join(source_lines[node.lineno - 1 : node.end_lineno])
+        start_line = node.lineno
+        if node.decorator_list:
+            start_line = node.decorator_list[0].lineno
+        class_content = "".join(source_lines[start_line - 1 : node.end_lineno])
         chunks: list[ChunkCandidate] = [
             ChunkCandidate(
                 content=class_content,
                 chunk_type="class",
-                line_start=node.lineno,
+                line_start=start_line,
                 line_end=node.end_lineno,
                 symbol_name=node.name,
             )

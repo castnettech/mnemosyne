@@ -30,7 +30,7 @@ export PYTHONPATH="/path/to/parent/of/mnemosyne:$PYTHONPATH"
 Verify it's accessible:
 ```bash
 python3 -c "import mnemosyne; print(mnemosyne.__version__)"
-# Expected: 0.3.0
+# Expected: 1.0.0
 ```
 
 ---

@@ -5,7 +5,7 @@
 M-GATE — httpx benchmark regression gate.
 
 Clones httpx 0.28.1 (cached), indexes it with Mnemosyne, runs 6 retrieval
-questions, and asserts that key metrics do not regress below the v0.3.0
+questions, and asserts that key metrics do not regress below the established
 baseline.
 
 Run with:
@@ -88,7 +88,7 @@ def httpx_benchmark_results(httpx_root):
 
 @pytest.mark.benchmark
 class TestHttpxRegressionGate:
-    """v0.3.0 baseline assertions -- no regression allowed."""
+    """Baseline assertions -- no regression allowed."""
 
     def test_q1_relevant_at_5(self, httpx_benchmark_results):
         assert httpx_benchmark_results["Q1"].relevant_at_5 >= 5

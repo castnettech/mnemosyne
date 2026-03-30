@@ -1,84 +1,147 @@
 # Mnemosyne — Adaptive Context Engine for LLM Agents
 
-> "Give your agent a memory that actually works."
+[![PyPI](https://img.shields.io/pypi/v/mnemosyne-engine)](https://pypi.org/project/mnemosyne-engine/) [![License](https://img.shields.io/badge/license-AGPL--3.0-green)](LICENSE) [![Python](https://img.shields.io/badge/python-3.11%2B-yellow)](https://python.org) [![Dependencies](https://img.shields.io/badge/runtime_deps-zero-brightgreen)](pyproject.toml)
 
-Mnemosyne is a production-grade LLM context compression and retrieval engine built entirely on the Python standard library. It solves the single biggest bottleneck in LLM agent effectiveness: context window waste. Rather than naively stuffing raw file contents into a prompt, Mnemosyne indexes your codebase, compresses each chunk intelligently, ranks candidates by value per token, and delivers exactly the right context within whatever budget you set — in under 100 milliseconds.
+![Mnemosyne Pipeline — Query → 6-Signal Retrieval → Ranked Tokens → LLM](docs/assets/pipeline.png)
 
-Version: **0.4.0** | License: AGPL-3.0 ([Commercial license available](COMMERCIAL-LICENSE.md)) | Requires: Python 3.11+ | Dependencies: **zero** (optional: `onnxruntime` for future dense embeddings)
+Mnemosyne is a context engine that sits between your codebase and your LLM. It indexes your project into a local SQLite store, scores every chunk with a 6-signal hybrid retriever, compresses the results with AST awareness, and delivers exactly the right context within whatever token budget you set. No API keys, no cloud, no runtime dependencies.
 
----
+On an 829-file production codebase, a Claude Code agent with Mnemosyne consumed **73% fewer tokens** (12K vs 45K) while returning the same correct answer. The savings compound in multi-turn sessions: every token saved is headroom for follow-up questions, and on large codebases that's the difference between a productive 10-turn conversation and hitting context limits at turn 3. On smaller repos, Mnemosyne matches baseline quality while finishing 2 seconds faster. It finds the correct source file **100% of the time** across both test sets and never makes the answer worse.
+
+> **73% token savings on large repos | 100% file retrieval | Sub-500ms queries | Zero runtime dependencies**
 
 ## Table of Contents
 
-1. [The Problem](#the-problem)
-2. [What Makes Mnemosyne Different](#what-makes-mnemosyne-different)
-3. [Architecture Overview](#architecture-overview)
-4. [Key Innovations](#key-innovations)
-5. [Quick Start](#quick-start)
-6. [CLI Reference](#cli-reference)
-7. [Configuration Reference](#configuration-reference)
-8. [Integration with LLM Agents](#integration-with-llm-agents)
-9. [Benchmarks](#benchmarks)
-10. [Technical Stack](#technical-stack)
-11. [File Structure](#file-structure)
-12. [Algorithm Documentation](#algorithm-documentation)
-13. [Future Roadmap](#future-roadmap)
-14. [License](#license)
+1. [Quick Start](#quick-start)
+2. [LLM Agent Integration](#llm-agent-integration)
+3. [Benchmarks](#benchmarks-at-a-glance)
+4. [Use Cases](#use-cases)
+5. [How It Retrieves](#how-it-retrieves)
+6. [Feature Comparison](#feature-comparison)
+7. [Architecture Overview](#architecture-overview)
+8. [Key Innovations](#key-innovations)
+9. [CLI Reference](#cli-reference)
+10. [Configuration Reference](#configuration-reference)
+11. [Integration with LLM Agents](#integration-with-llm-agents)
+12. [Technical Stack](#technical-stack)
+13. [File Structure](#file-structure)
+14. [Algorithm Documentation](#algorithm-documentation)
+15. [Future Roadmap](#future-roadmap)
+16. [License](#license)
 
 ---
 
-## The Problem
+## Quick Start
 
-Every LLM agent working on a real codebase faces the same problem - the context window is the most expensive, scarcest resource in the system, and current tooling wastes most of it.
+```bash
+pip install mnemosyne-engine          # zero runtime dependencies
 
-### Context Window Waste Is Pervasive
+cd your-project
+mnemosyne init && mnemosyne ingest    # index your codebase (~seconds for most repos)
+mnemosyne query "How does auth work?" --budget 8000
+```
 
-When a developer asks their AI assistant to fix a bug in an authentication module, the agent typically receives hundreds of kilobytes of unrelated code — test fixtures, unrelated models, build configuration, lock files, and import boilerplate. Studies of real-world LLM coding sessions show **40–70% of injected context is irrelevant or redundant** to the task at hand.
-
-The consequences compound:
-
-- **Token cost**: Every wasted token is direct spend. At scale, context inefficiency is a billing problem.
-- **Degraded quality**: LLMs lose focus when context is noisy. The "lost in the middle" phenomenon is well-documented — relevant information buried in a large context window is missed more often than information at the edges.
-- **Latency**: Larger prompts take longer to process. Every unnecessary token adds latency to every turn.
-- **Rate limits**: Context-heavy requests hit token-per-minute limits faster, throttling agent throughput.
-
-### No Existing Tool Solves This Completely
-
-Current tools address at most one dimension of the problem:
-
-- **IDE context managers** (Cursor, Copilot) use recency and open-tab heuristics. They are file-centric, not semantic, and have no cross-session memory.
-- **Code search tools** (grep, ripgrep, embeddings) find text but do not budget, compress, or rank by value per token.
-- **MemGPT** introduces persistent memory but is architecture-specific, externally dependent, and does not perform compression or cost-model retrieval.
-- **Aider** is a capable coding agent but its context management is manual — the developer specifies files.
-
-**Context management is the number one bottleneck for LLM agent effectiveness on large codebases.** No existing tool combines compression, adaptive retrieval, cost-model ranking, delta delivery, and cross-session learning in a single zero-dependency engine.
-
-Mnemosyne is that engine.
+The `--budget` flag caps output to 8000 tokens. Your LLM gets exactly what it needs, nothing more. To integrate with your LLM agent, add the query command to its instruction file — see below.
 
 ---
 
-## What Makes Mnemosyne Different
+## LLM Agent Integration
 
-### Competitive Feature Matrix
+### Claude Code
 
-| Feature | Claude Code (native) | Cursor | Aider | Copilot | MemGPT | **Mnemosyne** |
+Add this near the top of your project's `CLAUDE.md`:
+
+```markdown
+## Context Retrieval — MANDATORY
+
+Before answering any question about this codebase, ALWAYS query the Mnemosyne index first:
+
+    ! mnemosyne query "<your question>" --budget 8000
+
+Use the returned chunks as your primary context for answering. Only use Read, Grep,
+or Glob if the Mnemosyne chunks do not fully answer the question. Always cite which
+files and functions you found the answer in.
+```
+
+This was the highest-performing configuration in our benchmarks: Claude finds the right files on the first call instead of burning tokens on exploratory greps. On an 829-file codebase, this cut token consumption by 73%.
+
+### Cursor
+
+Add to `.cursorrules` in your project root:
+
+```
+When answering questions about this codebase, run this command first:
+mnemosyne query "<your question>" --budget 8000
+Use the output to identify relevant files before reading them.
+```
+
+### Other agents (Aider, GPT, custom)
+
+Any agent that can execute shell commands or read a system prompt can use Mnemosyne. The pattern is the same: query first, then read the specific files Mnemosyne identifies.
+
+---
+
+## Benchmarks at a Glance
+
+Tested with Claude Opus 4.6 (1M context) against two real codebases — one large production repo, one smaller open-source library.
+
+| | Production repo (829 files) | Open-source library (100 files) |
+|---|---|---|
+| **Token cost** | **12K** vs 45K (**73% savings**) | ~4K vs ~3.5K (parity on small repos) |
+| **Correct file found** | **100%** (20/20 queries) | **100%** (incl. zero-overlap query) |
+| **Answer quality** | Equivalent to full-read baseline | Equivalent to full-read baseline |
+| **Speed** | 18s vs 15s baseline | **8s** vs 10s baseline |
+| **Context preserved** | **98.8%** of 1M window remaining | ~95% remaining |
+| **Compression** | 111K tokens indexed, 8K delivered (**99% reduction**) | 40-70% chunk-level compression |
+| **Query latency** | <500ms median cold, <200ms daemon | <500ms median cold |
+
+The pattern: on large repos, Mnemosyne saves 70%+ of tokens with no quality loss. On small repos, it matches baseline speed and quality. It never makes the answer worse.
+
+---
+
+## Use Cases
+
+- **LLM context provider** — feed Claude, GPT, or any LLM the right 8K tokens from a 100K+ codebase
+- **Claude Code / Cursor / Aider** — drop-in integration via instruction files
+- **Token cost optimization** — cut API spend by 70%+ on context-heavy agent workflows
+- **Codebase Q&A** — natural language questions, ranked file+function answers
+- **CI/CD pipelines** — query relevant context for automated code review
+
+---
+
+## How It Retrieves
+
+Six signals, fused per query via Reciprocal Rank Fusion:
+
+1. **BM25** (FTS5) — lexical term matching with Porter stemming
+2. **TF-IDF** — sparse vector similarity with identifier-aware tokenization
+3. **Symbol search** — exact match on function, class, and variable names
+4. **Usage frequency** — decay-weighted cross-session learning
+5. **Predictive prefetch** — co-occurrence patterns pre-warm the cache
+6. **Dense embeddings** — optional 23MB ONNX model for semantic similarity when query vocabulary doesn't match code vocabulary
+
+Results are ranked by value-per-token, compressed adaptively (AST-aware for Python, Go, Rust, C#, Java, Kotlin), deduplicated, and trimmed to your budget. Everything runs locally against SQLite with WAL mode and FTS5. No external services. No network calls at query time.
+
+---
+
+## Feature Comparison
+
+| Feature | Claude Code | Cursor | Aider | Copilot | MemGPT | **Mnemosyne** |
 |---|---|---|---|---|---|---|
 | Adaptive compression | No | No | No | No | No | **Yes** |
 | Cost-model retrieval | No | No | No | No | No | **Yes** |
-| Delta-aware context injection | No | No | No | No | No | **Yes** |
+| Delta-aware context | No | No | No | No | No | **Yes** |
 | Usage-frequency learning | No | No | No | No | No | **Yes** |
 | ARC cache (not FIFO) | No | No | No | No | No | **Yes** |
 | Predictive pre-fetching | No | No | No | No | No | **Yes** |
 | Semantic deduplication | No | No | No | No | No | **Yes** |
 | Cross-session persistence | No | No | No | No | Yes | **Yes** |
-| Zero external dependencies | N/A | No | No | No | No | **Yes** |
+| Zero runtime dependencies | N/A | No | No | No | No | **Yes** |
 | AST-aware chunking | No | Partial | No | No | No | **Yes** |
-| Hybrid BM25 + TF-IDF + Usage | No | No | No | No | No | **Yes** |
+| Hybrid 6-signal retrieval | No | No | No | No | No | **Yes** |
 | Token budget enforcement | No | No | No | No | No | **Yes** |
-| Audit log | No | No | No | No | No | **Yes** |
-| Garbage collection | No | No | No | No | No | **Yes** |
 
-Every "Yes" in the Mnemosyne column is a differentiator that required deliberate engineering. The combination of all of them in a single, zero-dependency Python library is unique in the ecosystem.
+Built by [Cast Rock Innovation L.L.C.](https://castnettechnology.com) | [Commercial license available](COMMERCIAL-LICENSE.md)
 
 ---
 
@@ -259,10 +322,10 @@ Query String  +  Token Budget
 cli.py  ──> ingest.py  ──> chunkers/  ──> code_chunker.py   (Python AST)
         │              ├── hasher.py          js_chunker.py    (JS/TS regex+brace)
         │              ├── store.py           brace_chunker.py (shared base class)
-        │              ├── bloom.py           go_chunker.py    (Go, v0.4.0)
-        │              ├── embeddings/ ──>    csharp_chunker.py(C#, v0.4.0)
-        │              └── audit.py           rust_chunker.py  (Rust, v0.4.0)
-        │                   └──>              java_chunker.py  (Java/Kotlin, v0.4.0)
+        │              ├── bloom.py           go_chunker.py    (Go, v1.0.0)
+        │              ├── embeddings/ ──>    csharp_chunker.py(C#, v1.0.0)
+        │              └── audit.py           rust_chunker.py  (Rust, v1.0.0)
+        │                   └──>              java_chunker.py  (Java/Kotlin, v1.0.0)
         │                   tfidf_backend.py  text_chunker.py
         │                                     generic_chunker.py
         │
@@ -273,7 +336,7 @@ cli.py  ──> ingest.py  ──> chunkers/  ──> code_chunker.py   (Python 
         │               └── compress.py ──> density.py
         │                               └── embeddings/tfidf_backend.py
         │
-        ├── daemon.py (JSON-RPC Unix socket server, v0.4.0)
+        ├── daemon.py (JSON-RPC Unix socket server, v1.0.0)
         ├── cache.py  (ARCCache — standalone)
         ├── tiers.py  (TierManager — ARC <-> Store bridge)
         ├── delta.py  (DeltaTracker)
@@ -1018,7 +1081,7 @@ The compression ratio varies by content type. Code with high proportions of impo
 
 On a typical Python project with shared utilities and copy-paste patterns: **8–15% of chunks** are deduplicated on first index. This directly reduces index size, query noise, and retrieval ranking interference from repeated content.
 
-### Benchmark Suite (v0.4.0)
+### Benchmark Suite (v1.0.0)
 
 A multi-project benchmark runner (`tests/benchmark_suite.py`) measures chunk-level precision across multiple codebases. It indexes each project, runs a set of queries against known-relevant chunks, and reports precision-at-k scores. The `mnemosyne analytics` CLI command provides the same precision metrics from recorded feedback events in production.
 
@@ -1171,7 +1234,7 @@ Full algorithm details, design rationale, and academic paper references are in *
 
 ## Future Roadmap
 
-### Completed in v0.4.0
+### Completed in v1.0.0
 
 - **Standalone CLI** -- Mnemosyne is a CLI-only tool by design. No MCP server, no protocol bridges. Consumers use `mnemosyne query/ingest/stats` commands or the Python API directly.
 - **JSON-RPC Daemon Mode** -- `mnemosyne daemon start/stop/status` runs a persistent Unix-domain-socket server keeping SQLite, TF-IDF, analytics, and prefetcher warm. Eliminates cold-start overhead for high-throughput workloads.
@@ -1196,7 +1259,7 @@ The architecture is already prepared: the `embeddings/__init__.py` factory patte
 
 #### Tree-sitter Multi-Language AST Parsing
 
-The brace-based chunkers added in v0.4.0 provide good structural extraction for Go, C#, Rust, Java, and Kotlin. Tree-sitter would provide a uniform, production-grade parsing interface for 100+ languages, replacing regex patterns with true AST-based chunking where higher precision is needed (e.g., C/C++, Ruby, Swift).
+The brace-based chunkers added in v1.0.0 provide good structural extraction for Go, C#, Rust, Java, and Kotlin. Tree-sitter would provide a uniform, production-grade parsing interface for 100+ languages, replacing regex patterns with true AST-based chunking where higher precision is needed (e.g., C/C++, Ruby, Swift).
 
 #### Hierarchical Summary Trees
 

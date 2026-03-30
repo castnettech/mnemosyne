@@ -164,13 +164,8 @@ class RetrievalEngine:
         symbol_results = self._symbol_search(query_text)
 
         # 2c. Dense semantic search (optional, requires onnxruntime)
-        # Use BM25+TF-IDF candidate IDs to limit dense search scope
-        candidate_ids = list(
-            {cid for cid, _ in bm25_results} | {cid for cid, _ in vector_results}
-        )
-        dense_results = self._dense_search(
-            query_text, candidate_ids=candidate_ids or None
-        )
+        # Search ALL chunks — dense bridges lexical gaps that BM25/TF-IDF miss
+        dense_results = self._dense_search(query_text)
 
         # 3. Usage frequency scores
         usage_scores = self._usage_scores() if self.analytics else {}
@@ -187,7 +182,7 @@ class RetrievalEngine:
             dense_results=dense_results,
         )
 
-        # 5a. Symbol match multiplier — purely additive over v0.3.0.
+        # 5a. Symbol match multiplier — stable baseline.
         #     All symbol matches get the same 3x boost as before.
         #     PascalCase class-name mode adds a 4x boost for class-type
         #     chunks only — this is the ONLY new behaviour.
@@ -214,7 +209,7 @@ class RetrievalEngine:
                 for cid, rrf, scores in fused:
                     if cid in symbol_info:
                         _, ctype = symbol_info[cid]
-                        # 3x for all (preserves v0.3.0); 4x for class + PascalCase
+                        # 3x for all; 4x for class + PascalCase
                         boost = 4.0 if (class_name_mode and ctype == "class") else 3.0
                         new_rrf = rrf * boost
                         new_scores = dict(scores)

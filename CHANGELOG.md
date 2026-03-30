@@ -5,6 +5,24 @@ All notable changes to Mnemosyne are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-03-30
+
+### Added
+- Dense embedding backend — optional 23MB ONNX model (all-MiniLM-L6-v2-code-search-512)
+  as 6th retrieval signal via Reciprocal Rank Fusion. Bridges vocabulary gap
+  when query terms don't match code identifiers. Opt-in via config, downloads
+  on first use, runs 100% locally. No data egress.
+- Porter stemmer for TF-IDF tokenizer — aligns with BM25/FTS5 porter stemming.
+- Code-aware stopwords — `get`, `set`, `for`, `is`, `has` preserved in code
+  identifier splitting instead of being stripped as English stopwords.
+- Two-pass soft file filter — files containing top-50 individual chunks survive
+  at 0.7x penalty even if their aggregate file score is low.
+- Symbol match file promotion — files with strong symbol matches get guaranteed
+  filter slots.
+- Decorator inclusion — function/class chunks now include decorator blocks.
+- Chunk enrichment — TF-IDF embeddings include file path and module docstring
+  context for better semantic matching.
+
 ## [0.4.0] - 2026-03-29
 
 ### Added
@@ -59,5 +77,6 @@ Initial public release on PyPI as `mnemosyne-engine`.
 - Daemon mode with Unix socket RPC
 - Zero runtime dependencies
 
+[1.0.0]: https://github.com/castnettech/mnemosyne/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/castnettech/mnemosyne/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/castnettech/mnemosyne/releases/tag/v0.3.0
