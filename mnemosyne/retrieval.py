@@ -164,13 +164,8 @@ class RetrievalEngine:
         symbol_results = self._symbol_search(query_text)
 
         # 2c. Dense semantic search (optional, requires onnxruntime)
-        # Use BM25+TF-IDF candidate IDs to limit dense search scope
-        candidate_ids = list(
-            {cid for cid, _ in bm25_results} | {cid for cid, _ in vector_results}
-        )
-        dense_results = self._dense_search(
-            query_text, candidate_ids=candidate_ids or None
-        )
+        # Search ALL chunks — dense bridges lexical gaps that BM25/TF-IDF miss
+        dense_results = self._dense_search(query_text)
 
         # 3. Usage frequency scores
         usage_scores = self._usage_scores() if self.analytics else {}

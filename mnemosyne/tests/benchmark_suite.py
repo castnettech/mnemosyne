@@ -445,6 +445,19 @@ class BenchmarkSuite:
         tfidf = get_backend(config, store)
         audit = AuditLog(os.path.join(mnemosyne_dir, "audit.log"))
 
+        # Dense backend (optional — requires onnxruntime)
+        dense_backend = None
+        try:
+            from mnemosyne.embeddings.dense_backend import DenseBackend
+            if DenseBackend.is_available():
+                config.embedding.dense_model = "minilm-l6-code"
+                dense_backend = DenseBackend(
+                    config, store,
+                    model_dir=os.path.join(mnemosyne_dir, "models"),
+                )
+        except Exception:
+            pass
+
         # Ingest
         ingester = Ingester(
             project_root=project_root,
@@ -453,6 +466,7 @@ class BenchmarkSuite:
             bloom=bloom,
             tfidf_backend=tfidf,
             audit=audit,
+            dense_backend=dense_backend,
         )
         stats = ingester.ingest(full=True)
         print(
@@ -472,6 +486,7 @@ class BenchmarkSuite:
             config=config,
             analytics=analytics,
             prefetcher=prefetcher,
+            dense_backend=dense_backend,
         )
 
         return engine, config
