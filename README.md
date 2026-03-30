@@ -2,8 +2,6 @@
 
 [![PyPI](https://img.shields.io/pypi/v/mnemosyne-engine)](https://pypi.org/project/mnemosyne-engine/) [![License](https://img.shields.io/badge/license-AGPL--3.0-green)](LICENSE) [![Python](https://img.shields.io/badge/python-3.11%2B-yellow)](https://python.org) [![Dependencies](https://img.shields.io/badge/runtime_deps-zero-brightgreen)](pyproject.toml)
 
-![Mnemosyne Pipeline — Query → 6-Signal Retrieval → Ranked Tokens → LLM](docs/assets/pipeline.png)
-
 Mnemosyne is a context engine that sits between your codebase and your LLM. It indexes your project into a local SQLite store, scores every chunk with a 6-signal hybrid retriever, compresses the results with AST awareness, and delivers exactly the right context within whatever token budget you set. No API keys, no cloud, no runtime dependencies.
 
 On an 829-file production codebase, a Claude Code agent with Mnemosyne consumed **73% fewer tokens** (12K vs 45K) while returning the same correct answer. The savings compound in multi-turn sessions: every token saved is headroom for follow-up questions, and on large codebases that's the difference between a productive 10-turn conversation and hitting context limits at turn 3. On smaller repos, Mnemosyne matches baseline quality while finishing 2 seconds faster. It finds the correct source file **100% of the time** across both test sets and never makes the answer worse.
