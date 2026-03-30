@@ -31,6 +31,8 @@ import re
 from collections import Counter, defaultdict
 from typing import TYPE_CHECKING
 
+from mnemosyne.embeddings.stemmer import stem as _porter_stem
+
 if TYPE_CHECKING:
     from mnemosyne.config import Config
 
@@ -150,7 +152,8 @@ class TFIDFBackend:
             if len(parts) > 1:
                 result.extend(p for p in parts if len(p) >= 2 and p not in _STOPWORDS)
 
-        return result
+        # Apply Porter stemming so TF-IDF aligns with BM25/FTS5 porter tokeniser.
+        return [_porter_stem(tok) for tok in result]
 
     # ------------------------------------------------------------------
     # Tokenizer version tracking
@@ -169,6 +172,7 @@ class TFIDFBackend:
             "stopwords:" + ",".join(sorted(_STOPWORDS)),
             "pattern:" + self._TOKEN_PATTERN,
             "min_subtoken_len:" + str(self._MIN_SUBTOKEN_LEN),
+            "stemmer:porter",
         ]
         canonical = "\n".join(canonical_parts)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

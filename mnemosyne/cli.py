@@ -139,6 +139,19 @@ def _make_prefetcher(store):
     return Prefetcher(store)
 
 
+def _make_dense_backend(config, store, project_root: str):
+    """Create the dense embedding backend if configured and available."""
+    dense_model = getattr(config.embedding, "dense_model", None)
+    if not dense_model:
+        return None
+    try:
+        from mnemosyne.embeddings.dense_backend import DenseBackend
+        model_dir = os.path.join(project_root, ".mnemosyne", "models")
+        return DenseBackend(config, store, model_dir=model_dir)
+    except ImportError:
+        return None
+
+
 def _make_cache(config):
     from mnemosyne.cache import ARCCache
     return ARCCache(
@@ -220,6 +233,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     bloom = _make_bloom(project_root)
     tfidf = _make_tfidf(store, config)
     audit = _make_audit(project_root)
+    dense = _make_dense_backend(config, store, project_root)
 
     from mnemosyne.ingest import Ingester
     ingester = Ingester(
@@ -229,6 +243,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         bloom=bloom,
         tfidf_backend=tfidf,
         audit=audit,
+        dense_backend=dense,
     )
 
     paths = args.paths if args.paths else None
@@ -271,6 +286,7 @@ def cmd_query(args: argparse.Namespace) -> int:
     tfidf = _make_tfidf(store, config)
     analytics = _make_analytics(store, config)
     prefetcher = _make_prefetcher(store)
+    dense = _make_dense_backend(config, store, project_root)
 
     session_id = args.session
     if session_id is None:
@@ -285,6 +301,7 @@ def cmd_query(args: argparse.Namespace) -> int:
         config=config,
         analytics=analytics,
         prefetcher=prefetcher,
+        dense_backend=dense,
     )
 
     budget = args.budget  # None delegates to config default inside engine.query

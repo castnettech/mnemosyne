@@ -98,6 +98,9 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "backend": "tfidf",
         "tfidf_max_features": 10000,
         "tfidf_min_df": 1,
+        "dense_model": None,  # "minilm-l6-code" to enable, None to disable
+        "dense_dim": 384,
+        "dense_weight": 0.3,
     },
     "compression": {
         "target_ratio": 0.4,
@@ -112,6 +115,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "bm25_weight": 0.4,
         "vector_weight": 0.4,
         "usage_weight": 0.2,
+        "dense_weight": 0.3,
         "max_results": 20,
         "token_budget": 8000,
         "max_files": 0,                 # 0 = adaptive (min 3, max 8, ~1/3 of fused files)
@@ -229,10 +233,13 @@ class Config:
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Build TOML content manually (tomllib is read-only; we write by hand).
+        # None values are omitted — TOML has no null representation.
         lines: list[str] = []
         for section_name, sec in self._sections.items():
             lines.append(f"[{section_name}]")
             for key, value in sec.as_dict().items():
+                if value is None:
+                    continue  # TOML has no null; omit the key
                 lines.append(f"{key} = {self._toml_value(value)}")
             lines.append("")
 

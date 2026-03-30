@@ -560,15 +560,18 @@ class TestInjectionHeuristics(unittest.TestCase):
 
     def test_file_level_filter_adaptive(self):
         """
-        With 12 unique fused files, adaptive filter keeps max(3, 12//3) = 4.
-        With 30 unique fused files, adaptive filter keeps min(max(3, 30//3), 8) = 8.
+        Two-pass file filter: top-N by aggregate score PLUS chunk-qualified
+        files from top-50 individual chunks.
+
+        With few fused entries (< 50), all files are chunk-qualified so
+        the surviving set equals the number of unique files.  With many
+        entries, only the aggregate top-N plus chunk-qualified files survive.
         """
         store, conn = _make_memory_store()
         cfg = _default_config()
         cfg.embedding.tfidf_min_df = 1
         cfg.retrieval.max_results = 50
         cfg.retrieval.token_budget = 50000
-        # Ensure max_files is 0 (adaptive mode)
         cfg.retrieval.max_files = 0
 
         from mnemosyne.embeddings.tfidf_backend import TFIDFBackend
@@ -599,29 +602,27 @@ class TestInjectionHeuristics(unittest.TestCase):
             store=store, tfidf_backend=tfidf, config=cfg,
         )
 
-        # --- Case A: 12 fused files -> max(3, 12//3) = 4 files kept ---
-        fused_12 = []
-        for cid in all_cids[:12]:
-            fused_12.append((cid, 1.0 / (1 + cid), {"bm25": 0.5, "rrf": 0.5}))
+        # 12 fused entries < 50, so all chunk-qualify.  All 12 files survive.
+        fused_12 = [(cid, 1.0 / (1 + cid), {"bm25": 0.5, "rrf": 0.5}) for cid in all_cids[:12]]
         result_12 = engine._file_level_filter(fused_12)
-        file_ids_12 = set()
-        for cid, _, _ in result_12:
-            chunk = store.get_chunk(cid)
-            if chunk:
-                file_ids_12.add(chunk.file_id)
-        self.assertEqual(len(file_ids_12), 4, f"12 fused files -> expected 4 kept, got {len(file_ids_12)}")
+        file_ids_12 = {store.get_chunk(cid).file_id for cid, _, _ in result_12 if store.get_chunk(cid)}
+        self.assertEqual(len(file_ids_12), 12, f"12 fused (all chunk-qualify) -> expected 12, got {len(file_ids_12)}")
 
-        # --- Case B: 30 fused files -> min(max(3, 30//3), 8) = 8 files kept ---
-        fused_30 = []
-        for cid in all_cids[:30]:
-            fused_30.append((cid, 1.0 / (1 + cid), {"bm25": 0.5, "rrf": 0.5}))
+        # 30 fused entries < 50, so all chunk-qualify.  All 30 files survive.
+        fused_30 = [(cid, 1.0 / (1 + cid), {"bm25": 0.5, "rrf": 0.5}) for cid in all_cids[:30]]
         result_30 = engine._file_level_filter(fused_30)
-        file_ids_30 = set()
-        for cid, _, _ in result_30:
-            chunk = store.get_chunk(cid)
-            if chunk:
-                file_ids_30.add(chunk.file_id)
-        self.assertEqual(len(file_ids_30), 8, f"30 fused files -> expected 8 kept, got {len(file_ids_30)}")
+        file_ids_30 = {store.get_chunk(cid).file_id for cid, _, _ in result_30 if store.get_chunk(cid)}
+        self.assertEqual(len(file_ids_30), 30, f"30 fused (all chunk-qualify) -> expected 30, got {len(file_ids_30)}")
+
+        # Verify soft penalty: chunks from files NOT in top-N get 0.7x scores
+        top_n = min(max(4, 30 // 3), 10)  # = 10
+        # The top-10 files by max score keep full scores, rest get penalized
+        penalized_chunks = [(cid, rrf, sc) for cid, rrf, sc in result_30
+                           if store.get_chunk(cid) and store.get_chunk(cid).file_id not in
+                           {store.get_chunk(c).file_id for c, _, _ in sorted(fused_30, key=lambda x: x[1], reverse=True)[:top_n]}]
+        for cid, rrf, sc in penalized_chunks[:3]:
+            orig = next(r for c, r, _ in fused_30 if c == cid)
+            self.assertAlmostEqual(rrf, orig * 0.7, places=5)
 
     # ------------------------------------------------------------------
     # Test 4: import graph single reference not injected

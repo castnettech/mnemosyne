@@ -53,6 +53,7 @@ class Ingester:
         bloom: "BloomFilter",
         tfidf_backend,
         audit: "AuditLog",
+        dense_backend=None,
     ) -> None:
         self.root = os.path.abspath(project_root)
         self.config = config
@@ -60,6 +61,7 @@ class Ingester:
         self.bloom = bloom
         self.tfidf = tfidf_backend
         self.audit = audit
+        self.dense = dense_backend
 
     # ------------------------------------------------------------------
     # Public API
@@ -472,6 +474,15 @@ class Ingester:
                 self.store.insert_sparse_embedding(chunk_id, terms)
             except Exception:
                 pass
+
+            # Dense embedding (optional — requires onnxruntime + model)
+            if self.dense is not None:
+                try:
+                    vec_bytes = self.dense.embed_to_bytes(cand.content)
+                    if vec_bytes:
+                        self.store.insert_dense_embedding(chunk_id, vec_bytes, dim=384)
+                except Exception:
+                    pass
 
             # Update Bloom filter with the content hash
             self.bloom.add(chunk_hash)
