@@ -11,6 +11,7 @@ maintains the Bloom filter and audit log.
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import os
 import time
@@ -385,6 +386,49 @@ class Ingester:
         return False
 
     # ------------------------------------------------------------------
+    # Enrichment — context prepended to embedding input only
+    # ------------------------------------------------------------------
+
+    def _build_enriched_text(
+        self,
+        cand,
+        rel_path: str,
+        module_doc: str,
+    ) -> str:
+        """Build enriched text for embedding.  Raw ``cand.content`` is stored
+        in the DB unchanged (for display); only the embedding input changes.
+
+        Enrichment layers:
+        1. File path context
+        2. Module docstring (first 100 chars, if available)
+        3. Parent class name (if the chunk is a method)
+        4. Symbol name and chunk type
+        5. Original content
+        """
+        parts: list[str] = []
+
+        # 1. File path context
+        parts.append(f"# File: {rel_path}")
+
+        # 2. Module docstring (trimmed)
+        if module_doc:
+            trimmed = module_doc[:100].replace("\n", " ").strip()
+            parts.append(f"# Module: {trimmed}")
+
+        # 3. Parent class context
+        if cand.parent_symbol:
+            parts.append(f"# Class: {cand.parent_symbol}")
+
+        # 4. Symbol name context
+        if cand.symbol_name:
+            parts.append(f"# Symbol: {cand.symbol_name} ({cand.chunk_type})")
+
+        # 5. Original content
+        parts.append(cand.content)
+
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
     # Core indexing logic
     # ------------------------------------------------------------------
 
@@ -433,6 +477,15 @@ class Ingester:
         # Delete old chunks for this file before re-chunking
         self.store.delete_chunks_for_file(file_id)
 
+        # Extract module docstring once per file for enrichment
+        module_doc = ""
+        if language == "python":
+            try:
+                tree = ast.parse(source)
+                module_doc = ast.get_docstring(tree) or ""
+            except SyntaxError:
+                pass
+
         # Chunk the file
         chunker = get_chunker(language, self.config)
         candidates = chunker.chunk(source, language)
@@ -468,9 +521,12 @@ class Ingester:
 
             chunk_id = self.store.save_chunk(chunk)
 
+            # Build enriched text for embedding (content stored raw for display)
+            enriched = self._build_enriched_text(cand, rel_path, module_doc)
+
             # Update sparse embedding index (TF-IDF term weights for this chunk)
             try:
-                terms = self.tfidf.embed(cand.content)
+                terms = self.tfidf.embed(enriched)
                 self.store.insert_sparse_embedding(chunk_id, terms)
             except Exception:
                 pass
@@ -478,9 +534,9 @@ class Ingester:
             # Dense embedding (optional — requires onnxruntime + model)
             if self.dense is not None:
                 try:
-                    vec_bytes = self.dense.embed_to_bytes(cand.content)
+                    vec_bytes = self.dense.embed_to_bytes(enriched)
                     if vec_bytes:
-                        self.store.insert_dense_embedding(chunk_id, vec_bytes, dim=384)
+                        self.store.insert_dense_embedding(chunk_id, vec_bytes, dim=self.dense.dim)
                 except Exception:
                     pass
 
@@ -498,24 +554,40 @@ class Ingester:
         """Rebuild TF-IDF vocabulary and re-embed all chunks.
 
         This must run after all files are ingested so IDF values reflect
-        the full corpus rather than a single file at a time.
+        the full corpus rather than a single file at a time.  Enriched
+        text (file path, module docstring, symbol context) is used for
+        both vocabulary building and per-chunk embedding so that the
+        TF-IDF index stays consistent with the initial ingest embeddings.
         """
         rows = self.store.conn.execute(
-            "SELECT chunk_id, content FROM chunks"
+            "SELECT c.chunk_id, c.content, c.chunk_type, c.symbol_name, "
+            "       f.rel_path "
+            "FROM chunks c JOIN files f ON c.file_id = f.file_id"
         ).fetchall()
         if not rows:
             return
 
-        texts = [r[1] for r in rows]
+        # Build a minimal enriched text for each chunk.  We cannot
+        # recover parent_symbol from the DB (it is not stored), so we
+        # skip that layer.  Module docstring extraction is also skipped
+        # here to avoid re-reading every source file; the path, symbol,
+        # and type context still provide a significant boost.
+        enriched_texts: list[str] = []
+        for row in rows:
+            parts: list[str] = [f"# File: {row[4]}"]
+            if row[3]:  # symbol_name
+                parts.append(f"# Symbol: {row[3]} ({row[2]})")
+            parts.append(row[1])  # content
+            enriched_texts.append("\n".join(parts))
 
         # Build vocabulary from the full corpus
-        self.tfidf.build_vocabulary(texts)
+        self.tfidf.build_vocabulary(enriched_texts)
 
         # Re-embed every chunk with the updated IDF values
-        for chunk_id_val, content in rows:
-            terms = self.tfidf.embed(content)
+        for row, enriched in zip(rows, enriched_texts):
+            terms = self.tfidf.embed(enriched)
             if terms:
-                self.store.insert_sparse_embedding(chunk_id_val, terms)
+                self.store.insert_sparse_embedding(row[0], terms)
 
         # Persist vocabulary for future sessions
         try:
