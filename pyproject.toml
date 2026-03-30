@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemosyne-engine"
-version = "0.4.1"
+version = "1.0.0"
 description = "LLM Context Compression and Retrieval Engine — zero dependencies, sub-100ms queries, 40-70% token reduction"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = "AGPL-3.0-or-later"
 authors = [{name = "Cast Rock Innovation L.L.C."}]
 keywords = ["llm", "context", "compression", "retrieval", "token", "mnemosyne", "code-search", "bm25", "tfidf"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

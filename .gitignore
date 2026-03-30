@@ -52,6 +52,8 @@ CLAUDE.md
 # -- Docs --
 docs/
 !docs/benchmark_meat_detection_query.md
+!docs/assets/
+!docs/assets/pipeline.png
 
 # -- Holdback test data (never committed — validation-only) --
 mnemosyne/tests/benchmark_questions/httpx_holdback.json

@@ -182,7 +182,7 @@ class RetrievalEngine:
             dense_results=dense_results,
         )
 
-        # 5a. Symbol match multiplier — purely additive over v0.3.0.
+        # 5a. Symbol match multiplier — stable baseline.
         #     All symbol matches get the same 3x boost as before.
         #     PascalCase class-name mode adds a 4x boost for class-type
         #     chunks only — this is the ONLY new behaviour.
@@ -209,7 +209,7 @@ class RetrievalEngine:
                 for cid, rrf, scores in fused:
                     if cid in symbol_info:
                         _, ctype = symbol_info[cid]
-                        # 3x for all (preserves v0.3.0); 4x for class + PascalCase
+                        # 3x for all; 4x for class + PascalCase
                         boost = 4.0 if (class_name_mode and ctype == "class") else 3.0
                         new_rrf = rrf * boost
                         new_scores = dict(scores)
