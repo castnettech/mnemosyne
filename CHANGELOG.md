@@ -5,6 +5,16 @@ All notable changes to Mnemosyne are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-04-02
+
+### Added
+- PyPI trusted publisher workflow — OIDC authentication, SHA-pinned actions,
+  environment-gated deployment with required reviewer approval, signed SLSA
+  artifact attestation. Zero secrets or tokens in CI.
+
+### Fixed
+- Pinned SHA for `pypa/gh-action-pypi-publish` action (v1.12.4).
+
 ## [1.0.2] - 2026-04-02
 
 ### Fixed
@@ -103,6 +113,7 @@ Initial public release on PyPI as `mnemosyne-engine`.
 - Daemon mode with Unix socket RPC
 - Zero runtime dependencies
 
+[1.0.4]: https://github.com/castnettech/mnemosyne/compare/v1.0.2...v1.0.4
 [1.0.2]: https://github.com/castnettech/mnemosyne/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/castnettech/mnemosyne/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/castnettech/mnemosyne/compare/v0.3.0...v0.4.0
