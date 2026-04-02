@@ -5,6 +5,32 @@ All notable changes to Mnemosyne are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-04-02
+
+### Fixed
+- Self-ingestion bug — mnemosyne's own source package (`mnemosyne/`) was not
+  excluded from default `ignore_patterns`, causing the engine to index itself
+  when run from the repo root or when the package directory existed in a project.
+  Added `"mnemosyne"` to the default ignore list alongside `.mnemosyne`.
+- Benchmark suite root path — `httpx.json` had an empty `root` field that
+  resolved to the mnemosyne package directory instead of the httpx corpus.
+  Updated to use the same `/tmp` clone path as `httpx_holdback.json`.
+- Removed manual `"mnemosyne"` exclusion workaround from `benchmark_suite.py`
+  `_setup_mnemosyne()` — no longer needed with the default ignore fix.
+
+### Changed
+- README.md rewritten — condensed from 1,280 lines to ~120 lines. Repositioned
+  as a standard GitHub project page with logo, install, benchmarks, features,
+  and use cases. Detailed documentation moved to REFERENCE.md.
+- Added REFERENCE.md — full CLI reference, configuration, architecture,
+  key innovations, and integration guides (content preserved from original README).
+- Replaced `pipeline.png` with `mnemosyne.png` as centered repo logo.
+
+### Benchmark results (post-fix)
+- httpx (6 questions): File recall 0% → **80.6%** (was indexing wrong project)
+- Aggregate (46 questions): File recall 76.8% → **87.3%**
+- Regression gate: 5/5 passing
+
 ## [1.0.0] - 2026-03-30
 
 ### Added
@@ -77,6 +103,7 @@ Initial public release on PyPI as `mnemosyne-engine`.
 - Daemon mode with Unix socket RPC
 - Zero runtime dependencies
 
+[1.0.2]: https://github.com/castnettech/mnemosyne/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/castnettech/mnemosyne/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/castnettech/mnemosyne/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/castnettech/mnemosyne/releases/tag/v0.3.0

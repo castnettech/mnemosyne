@@ -431,8 +431,8 @@ class BenchmarkSuite:
         # Build config
         config = Config(root=project_root)
         patterns = list(config.general.ignore_patterns)
-        # Exclude mnemosyne's own source when it lives inside the project
-        for ignore in ("mnemosyne", "marketing", ".pytest_cache"):
+        # Exclude non-source noise from benchmark projects
+        for ignore in ("marketing", ".pytest_cache"):
             if ignore not in patterns:
                 patterns.append(ignore)
         config.general.ignore_patterns = patterns

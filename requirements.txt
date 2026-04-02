@@ -1,3 +1,3 @@
 # Mnemosyne — Runtime Dependencies
-# v1.0.0: Zero runtime dependencies (stdlib only)
+# v1.0.2: Zero runtime dependencies (stdlib only)
 # Optional: pip install mnemosyne-engine[dense] for semantic embeddings (onnxruntime)
