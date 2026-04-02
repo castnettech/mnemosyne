@@ -138,7 +138,7 @@ namespace access patterns (e.g., `MyApp.Utils`). Connected files are
 injected into results even if they share no keywords with the query.
 
 This is how `utils.js` gets surfaced when `analyzer.js` is found — the
-graph detects `var utils = PrivacyPeep.Utils` and injects utils.js.
+graph detects namespace references like `var utils = App.Utils` and injects utils.js.
 
 No configuration needed. Works for any JS/TS/Python project with standard
 import patterns.
@@ -200,7 +200,7 @@ The benchmark reports:
 - **Speed** — ingest time, query latency, baseline read time
 - **Storage** — index size vs. raw source size
 
-### Current benchmark results (policylens, 25 files, no project-specific overrides)
+### Current benchmark results (25 files, no project-specific overrides)
 
 | Metric | Value |
 |---|---|

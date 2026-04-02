@@ -30,6 +30,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             "node_modules",
             "__pycache__",
             ".mnemosyne",
+            "mnemosyne",
             "*.pyc",
             "*.lock",
             "*.min.js",

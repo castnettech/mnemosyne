@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-Mnemosyne Benchmark — policylens (PrivacyPeep) edition.
+Mnemosyne Benchmark — single-project edition.
 
 Measures token reduction, retrieval precision, compression ratios, query
-speed, and storage overhead for the Mnemosyne context engine against the
-policylens project.
+speed, and storage overhead for the Mnemosyne context engine against a
+target project.
 
 Usage:
-    python -m mnemosyne.tests.benchmark --project-root /path/to/policylens
-    python /path/to/benchmark.py --project-root /path/to/policylens [--budget 4000]
+    python -m mnemosyne.tests.benchmark --project-root /path/to/project
+    python /path/to/benchmark.py --project-root /path/to/project [--budget 4000]
 """
 
 from __future__ import annotations
@@ -33,103 +33,26 @@ if _PACKAGE_PARENT not in sys.path:
 # Benchmark definitions
 # ---------------------------------------------------------------------------
 
-def get_policylens_questions() -> list[dict]:
+def get_sample_questions() -> list[dict]:
     """
-    Return the hardcoded policylens (PrivacyPeep) benchmark question set.
+    Return an empty default question set.
 
-    Each question dict has keys: ``id``, ``question``, ``challenge``,
-    ``ground_truth``.  This is the original 10-question set used for
-    quick single-project benchmarking.
+    When using the single-project benchmark, supply questions via the
+    ``--questions`` JSON flag or pass them programmatically to
+    :class:`MnemosyneBenchmark`.  Each question dict should have keys:
+    ``id``, ``question``, ``challenge``, ``ground_truth``.
 
     Returns:
-        List of question dicts.
+        Empty list (override with project-specific questions).
     """
-    return [
-        {
-            "id": "Q01",
-            "question": "What does isNegated do and how does it detect negation?",
-            "challenge": "Symbol lookup",
-            "ground_truth": ["public/js/nlp.js"],
-        },
-        {
-            "id": "Q02",
-            "question": "How does the scoring pipeline work from findings to final grade?",
-            "challenge": "Architecture",
-            "ground_truth": ["public/js/scorer.js", "public/js/analyzer.js", "public/js/patterns.js"],
-        },
-        {
-            "id": "Q03",
-            "question": "How do patterns connect to the analyzer? What is the data flow from pattern definitions to findings?",
-            "challenge": "Cross-file",
-            "ground_truth": ["public/js/patterns.js", "public/js/analyzer.js", "public/js/utils.js"],
-        },
-        {
-            "id": "Q04",
-            "question": "What privacy frameworks are supported in the pattern detection like GDPR CCPA SOC2?",
-            "challenge": "Domain scan",
-            "ground_truth": ["public/js/patterns.js", "public/js/utils.js"],
-        },
-        {
-            "id": "Q05",
-            "question": "Where is negation detection handled and what are the known edge cases?",
-            "challenge": "Bug investigation",
-            "ground_truth": ["public/js/nlp.js", "public/js/analyzer.js"],
-        },
-        {
-            "id": "Q06",
-            "question": "How does policy comparison work?",
-            "challenge": "Feature deep-dive",
-            "ground_truth": ["public/js/comparator.js", "public/js/analyzer.js"],
-        },
-        {
-            "id": "Q07",
-            "question": "What dependencies does the project use and how is it served?",
-            "challenge": "Config/setup",
-            "ground_truth": ["package.json", "serve.sh", "public/index.html"],
-        },
-        {
-            "id": "Q08",
-            "question": "What test files exist and what do they cover?",
-            "challenge": "Test coverage",
-            "ground_truth": [
-                "tests/engine.test.js",
-                "tests/extractor.test.js",
-                "tests/real-policy-test.js",
-                "tests/top20-policy-test.js",
-            ],
-        },
-        {
-            "id": "Q09",
-            "question": "How does a policy URL get analyzed end to end?",
-            "challenge": "Full pipeline",
-            "ground_truth": [
-                "_score-runner.js",
-                "public/js/extractor.js",
-                "public/js/analyzer.js",
-                "public/js/app.js",
-            ],
-        },
-        {
-            "id": "Q10",
-            "question": "What categories does the privacy score include and what are their weights?",
-            "challenge": "Constant lookup",
-            "ground_truth": ["public/js/patterns.js", "public/js/scorer.js", "public/js/analyzer.js"],
-        },
-    ]
+    return []
 
 
 # Module-level constant — backward compatibility with code that references
 # ``benchmark.BENCHMARK_QUESTIONS`` directly.
-BENCHMARK_QUESTIONS = get_policylens_questions()
+BENCHMARK_QUESTIONS: list[dict] = []
 
-COMPRESSION_TARGETS = [
-    "public/js/patterns.js",
-    "public/js/app.js",
-    "public/js/analyzer.js",
-    "public/js/scorer.js",
-    "public/js/nlp.js",
-    "_score-runner.js",
-]
+COMPRESSION_TARGETS: list[str] = []
 
 # Directories to skip when walking the project tree
 _SKIP_DIRS = {".mnemosyne", "node_modules", ".git", "mnemosyne", "__pycache__"}
@@ -187,13 +110,6 @@ class MnemosyneBenchmark:
         #    NO project-specific overrides. The engine must rank properly
         #    using its own signals (density, symbol matching, TF-IDF).
         self.config = Config(root=self.project_root)
-        patterns = list(self.config.general.ignore_patterns)
-        # Exclude the mnemosyne engine's own source when it lives inside
-        # the project directory, and marketing assets (not source code).
-        for ignore in ("mnemosyne", "marketing"):
-            if ignore not in patterns:
-                patterns.append(ignore)
-        self.config.general.ignore_patterns = patterns
 
         # Override embedding min_df so unique-to-one-file terms are kept
         self.config.embedding.tfidf_min_df = 1
@@ -460,7 +376,7 @@ class MnemosyneBenchmark:
         sep = "=" * 72
 
         lines.append(sep)
-        lines.append("  MNEMOSYNE BENCHMARK REPORT — policylens (PrivacyPeep)")
+        lines.append("  MNEMOSYNE BENCHMARK REPORT")
         lines.append(f"  Project root : {self.project_root}")
         lines.append(f"  Token budget : {self.budget:,}")
         lines.append(sep)
@@ -644,7 +560,7 @@ def main() -> None:
     parser.add_argument(
         "--project-root",
         required=True,
-        help="Absolute path to the project to benchmark (e.g. /path/to/policylens)",
+        help="Absolute path to the project to benchmark",
     )
     parser.add_argument(
         "--budget",

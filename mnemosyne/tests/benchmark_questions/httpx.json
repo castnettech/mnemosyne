@@ -1,6 +1,6 @@
 {
   "project": "httpx",
-  "root": "",
+  "root": "/tmp/mnemosyne_benchmark_httpx_0.28.1",
   "questions": [
     {
       "id": "Q1",
