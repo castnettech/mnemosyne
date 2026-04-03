@@ -1,21 +1,25 @@
-# Publish mnemosyne-engine to PyPI via OIDC Trusted Publisher
+# Publish mnemosyne-mcp to PyPI via OIDC Trusted Publisher
 #
 # Security model:
-#   - ONLY fires on GitHub Releases published against the main branch
-#   - Build and publish are SEPARATE jobs (build artifacts are never modified after build)
+#   - ONLY fires on GitHub Releases with tag prefix "mcp-v" (e.g. mcp-v0.2.0)
+#   - Build and publish are SEPARATE jobs (artifacts never modified after build)
 #   - All actions pinned to full SHA (immune to tag-hijack attacks)
-#   - Publish job requires "release" environment (configure approval rules in GitHub Settings)
+#   - Publish job requires "release" environment (approval + branch restriction)
 #   - Minimal permissions per job (least-privilege)
 #   - Artifact attestation creates a signed provenance record (SLSA Level 2)
-#   - No secrets, tokens, or passwords anywhere — pure OIDC
+#   - No secrets, tokens, or passwords — pure OIDC
 #
 # Required setup:
-#   1. PyPI: Add trusted publisher (owner=castnettech, repo=mnemosyne, workflow=publish.yml, environment=release)
-#   2. GitHub: Create "release" environment in repo Settings > Environments
-#      - Add deployment protection rule: "Required reviewers" = your account
-#      - Restrict to "main" branch only
+#   1. PyPI: Add trusted publisher for mnemosyne-mcp
+#      (owner=castnettech, repo=mnemosyne, workflow=publish-mcp.yml, environment=release)
+#   2. GitHub: "release" environment already exists — ensure it covers this workflow
+#
+# Tag convention:
+#   Core engine uses "v1.0.4" tags → triggers publish.yml
+#   MCP server uses "mcp-v0.1.0" tags → triggers this workflow
+#   This prevents one release from accidentally publishing both packages.
 
-name: Publish to PyPI
+name: Publish MCP to PyPI
 
 on:
   release:
@@ -25,15 +29,15 @@ on:
 permissions: {}
 
 jobs:
-  # ── Gate: verify release targets main ──────────────────────────────
+  # ── Gate: verify release is an MCP release targeting main ──────────
   verify:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Reject MCP release tags
-        if: startsWith(github.event.release.tag_name, 'mcp-v')
+      - name: Reject non-MCP release tags
+        if: "!startsWith(github.event.release.tag_name, 'mcp-v')"
         run: |
-          echo "::error::MCP releases use publish-mcp.yml, not this workflow. Got '${{ github.event.release.tag_name }}'."
+          echo "::error::This workflow only handles mcp-v* tags. Got '${{ github.event.release.tag_name }}'."
           exit 1
 
       - name: Reject releases not targeting main
@@ -48,7 +52,7 @@ jobs:
           echo "::error::Pre-releases are not published to PyPI."
           exit 1
 
-  # ── Build: produce distribution artifacts ──────────────────────────
+  # ── Build: produce distribution artifacts from mcp/ ────────────────
   build:
     needs: [verify]
     runs-on: ubuntu-latest
@@ -61,19 +65,19 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
-      - name: Verify tag matches pyproject.toml version
+      - name: Verify tag matches mcp/pyproject.toml version
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME#mcp-v}"
           PKG_VERSION=$(python3 -c "
           import re, pathlib
-          text = pathlib.Path('pyproject.toml').read_text()
+          text = pathlib.Path('mcp/pyproject.toml').read_text()
           m = re.search(r'^version\s*=\s*\"([^\"]+)\"', text, re.M)
           print(m.group(1) if m else 'UNKNOWN')
           ")
           echo "Tag version:    $TAG"
           echo "Package version: $PKG_VERSION"
           if [ "$TAG" != "$PKG_VERSION" ]; then
-            echo "::error::Tag '$TAG' does not match pyproject.toml version '$PKG_VERSION'"
+            echo "::error::Tag 'mcp-v$TAG' does not match mcp/pyproject.toml version '$PKG_VERSION'"
             exit 1
           fi
 
@@ -86,14 +90,13 @@ jobs:
         run: pip install --upgrade build
 
       - name: Build sdist and wheel
-        run: python -m build
+        run: python -m build mcp/
 
       - name: Verify dist contents
         run: |
-          ls -la dist/
-          # Ensure exactly 1 sdist + 1 wheel, nothing unexpected
-          SDIST_COUNT=$(ls dist/*.tar.gz 2>/dev/null | wc -l)
-          WHEEL_COUNT=$(ls dist/*.whl 2>/dev/null | wc -l)
+          ls -la mcp/dist/
+          SDIST_COUNT=$(ls mcp/dist/*.tar.gz 2>/dev/null | wc -l)
+          WHEEL_COUNT=$(ls mcp/dist/*.whl 2>/dev/null | wc -l)
           if [ "$SDIST_COUNT" -ne 1 ] || [ "$WHEEL_COUNT" -ne 1 ]; then
             echo "::error::Expected 1 sdist + 1 wheel, got $SDIST_COUNT sdist + $WHEEL_COUNT wheel"
             exit 1
@@ -102,8 +105,8 @@ jobs:
       - name: Upload dist artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: dist
-          path: dist/
+          name: mcp-dist
+          path: mcp/dist/
           if-no-files-found: error
           retention-days: 5
 
@@ -120,7 +123,7 @@ jobs:
       - name: Download dist artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          name: dist
+          name: mcp-dist
           path: dist/
 
       - name: Generate artifact attestation
