@@ -76,9 +76,22 @@ mnemosyne query "How does authentication work?"   # search
 
 **Migration impact analysis** — Planning a framework upgrade or library swap? Query every usage of the old API, ranked by call frequency, to estimate effort and prioritize high-traffic paths.
 
-## LLM Agent Integration
+## MCP Server (Claude Code Integration)
 
-Add to your `CLAUDE.md`, `.cursorrules`, or equivalent instruction file:
+For native Claude Code integration, install the MCP server addon:
+
+```bash
+pip install mnemosyne-mcp
+claude mcp add mnemosyne -- mnemosyne-mcp
+```
+
+Claude Code will automatically call `mnemosyne.search` for code understanding, `mnemosyne.index` to build the index, and `mnemosyne.stats` for index info — no manual CLI steps required. Everything runs locally over stdio. No API calls, no data egress.
+
+See the full [MCP Server Reference](MCP.md) for configuration, tools, and integration details.
+
+## LLM Agent Integration (CLI)
+
+For agents that run shell commands (Cursor, Aider, Copilot, etc.), add to your `CLAUDE.md`, `.cursorrules`, or equivalent instruction file:
 
 ```
 Before answering questions about this codebase, run:
@@ -86,7 +99,7 @@ Before answering questions about this codebase, run:
 Use the returned chunks as primary context. Only read additional files if needed.
 ```
 
-Works with Claude Code, Cursor, Aider, Copilot, and any agent that can run shell commands.
+Works with any agent that can execute shell commands.
 
 ## CLI
 
@@ -110,6 +123,7 @@ Works with Claude Code, Cursor, Aider, Copilot, and any agent that can run shell
 
 | Document | Contents |
 |---|---|
+| [MCP.md](MCP.md) | MCP server reference — installation, tools, configuration, architecture |
 | [REFERENCE.md](REFERENCE.md) | Full CLI reference, configuration, architecture, integration guides |
 | [ALGORITHMS.md](ALGORITHMS.md) | Algorithm details with academic paper references |
 | [TUNING.md](TUNING.md) | Precision tuning guide |
