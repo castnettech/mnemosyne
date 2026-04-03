@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mnemosyne-mcp"
+version = "0.1.0"
+description = "MCP server for Mnemosyne — semantic code retrieval with 6-signal hybrid search and AST-aware compression"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.11"
+authors = [
+    { name = "Cast Rock Innovation L.L.C.", email = "support@castnettechnology.com" },
+]
+keywords = ["mcp", "mnemosyne", "code-search", "context-engine", "claude-code", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "mnemosyne-engine>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/castnettech/mnemosyne"
+Documentation = "https://castnettechnology.com/blog/mnemosyne-context-engine-benchmark"
+Repository = "https://github.com/castnettech/mnemosyne"
+
+[project.scripts]
+mnemosyne-mcp = "mnemosyne_mcp.server:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mnemosyne_mcp"]
