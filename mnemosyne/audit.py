@@ -7,7 +7,7 @@ Append-only JSONL audit logger for Mnemosyne.
 Design:
   - Every operation is written as one JSON object per line (JSONL format).
   - Writes are atomic at the line level: each ``log()`` call opens, writes,
-    and closes (or flushes) the file — there is no open file handle held
+    and closes (or flushes) the file -- there is no open file handle held
     between calls, so concurrent processes can append safely on most OS.
   - ``rotate()`` renames the current log to ``<name>.1.jsonl`` (keeping one
     backup), preventing unbounded growth.
@@ -106,7 +106,7 @@ class AuditLog:
 
         Args:
             last_n:    When provided, return only the last *n* matching records
-                       (tail semantics — most recent *n* entries that satisfy
+                       (tail semantics -- most recent *n* entries that satisfy
                        *op_filter*).  Pass None to return all matching records.
             op_filter: When provided, return only records whose ``"op"`` field
                        equals this string (exact match, case-sensitive).
@@ -132,7 +132,7 @@ class AuditLog:
                 try:
                     record = json.loads(raw_line)
                 except json.JSONDecodeError:
-                    # Corrupt line — skip rather than raising.
+                    # Corrupt line -- skip rather than raising.
                     continue
 
                 if op_filter is not None and record.get("op") != op_filter:
@@ -182,7 +182,7 @@ class AuditLog:
             if self.path.stat().st_size / (1024 * 1024) < max_size_mb:
                 return False
 
-            # Rename current → backup (atomic on most POSIX filesystems).
+            # Rename current -> backup (atomic on most POSIX filesystems).
             self.path.rename(backup_path)
 
         return True

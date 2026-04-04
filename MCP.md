@@ -12,8 +12,8 @@ pip install mnemosyne-mcp
 
 This installs:
 - The `mnemosyne-mcp` console script (the MCP server binary)
-- The `mcp` SDK (Anthropic's stdio protocol library — local only, no telemetry)
-- Depends on `mnemosyne-engine` (the core retrieval library — must be installed separately or already present)
+- The `mcp` SDK (Anthropic's stdio protocol library -- local only, no telemetry)
+- Depends on `mnemosyne-engine` (the core retrieval library -- must be installed separately or already present)
 
 ## Register with Claude Code
 
@@ -28,7 +28,7 @@ claude mcp add mnemosyne -- mnemosyne-mcp
 claude mcp add --scope user mnemosyne -- mnemosyne-mcp
 ```
 
-**Manual config** — add to `.mcp.json` in your project root:
+**Manual config** -- add to `.mcp.json` in your project root:
 ```json
 {
   "mcpServers": {
@@ -40,7 +40,7 @@ claude mcp add --scope user mnemosyne -- mnemosyne-mcp
 }
 ```
 
-**With a virtualenv** — point to the venv binary directly:
+**With a virtualenv** -- point to the venv binary directly:
 ```bash
 claude mcp add mnemosyne -- /path/to/your/.venv/bin/mnemosyne-mcp
 ```
@@ -53,7 +53,7 @@ Search the codebase using 6-signal hybrid retrieval.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | string | yes | — | Natural language query or keyword search |
+| `query` | string | yes | -- | Natural language query or keyword search |
 | `budget` | integer | no | 8000 | Maximum token budget for results |
 | `project_root` | string | no | cwd | Absolute path to the project root |
 
@@ -71,13 +71,13 @@ Search the codebase using 6-signal hybrid retrieval.
 ```
 You: how does the authentication middleware work?
 Claude: [calls mnemosyne.search with query="authentication middleware"]
-→ Returns 3 ranked chunks from auth.py, middleware.py, and config.py
-→ Claude answers from those chunks without reading any other files
+-> Returns 3 ranked chunks from auth.py, middleware.py, and config.py
+-> Claude answers from those chunks without reading any other files
 ```
 
 ### `mnemosyne.index`
 
-Index or re-index the codebase. Incremental by default — only processes files that changed since the last run.
+Index or re-index the codebase. Incremental by default -- only processes files that changed since the last run.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -123,7 +123,7 @@ mnemosyne-engine
 .mnemosyne/ (local index database)
 ```
 
-The MCP server is a thin async wrapper around the `mnemosyne-engine` Python API. It uses the `mcp` SDK's stdio transport — Claude Code spawns the server as a subprocess and communicates over stdin/stdout. No HTTP server, no ports, no network traffic.
+The MCP server is a thin async wrapper around the `mnemosyne-engine` Python API. It uses the `mcp` SDK's stdio transport -- Claude Code spawns the server as a subprocess and communicates over stdin/stdout. No HTTP server, no ports, no network traffic.
 
 **Lazy initialization:** The retrieval engine is only loaded when the first tool call arrives. Subsequent calls reuse the cached engine instance.
 
@@ -163,13 +163,13 @@ The `budget` parameter in `mnemosyne.search` overrides `token_budget` on a per-q
 
 ## Troubleshooting
 
-**"No files indexed yet"** — Run `mnemosyne.index` first, or run `mnemosyne init && mnemosyne ingest` from the CLI.
+**"No files indexed yet"** -- Run `mnemosyne.index` first, or run `mnemosyne init && mnemosyne ingest` from the CLI.
 
-**Server not appearing in Claude Code** — Verify registration with `claude mcp list`. Check that the binary path is correct: `which mnemosyne-mcp` or the full venv path.
+**Server not appearing in Claude Code** -- Verify registration with `claude mcp list`. Check that the binary path is correct: `which mnemosyne-mcp` or the full venv path.
 
-**Slow first query** — Cold start loads the TF-IDF index into memory. Subsequent queries are <20ms. Use daemon mode (`mnemosyne daemon start`) for persistent warm indexes.
+**Slow first query** -- Cold start loads the TF-IDF index into memory. Subsequent queries are <20ms. Use daemon mode (`mnemosyne daemon start`) for persistent warm indexes.
 
-**`.mnemosyne/` directory** — Created in the project root on first index. Add to your `.gitignore`. Contains only the SQLite index and cache — no source code is stored, only chunk hashes and compressed representations.
+**`.mnemosyne/` directory** -- Created in the project root on first index. Add to your `.gitignore`. Contains only the SQLite index and cache -- no source code is stored, only chunk hashes and compressed representations.
 
 ## Compatibility
 
@@ -189,6 +189,6 @@ The `budget` parameter in `mnemosyne.search` overrides `token_budget` on a per-q
 
 ## License
 
-AGPL-3.0 — commercial licensing available from [Cast Net Technology](https://castnettechnology.com).
+AGPL-3.0 -- commercial licensing available from [Cast Net Technology](https://castnettechnology.com).
 
 Copyright 2026 Cast Rock Innovation L.L.C.

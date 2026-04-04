@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-MnemoSync Benchmark Suite — multi-project, chunk-level precision measurement.
+MnemoSync Benchmark Suite -- multi-project, chunk-level precision measurement.
 
 Loads question sets from JSON files in ``tests/benchmark_questions/``, runs each
 question against its target project's Mnemosyne index, and computes file-level
@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
-# Path bootstrap — importable when run directly
+# Path bootstrap -- importable when run directly
 # ---------------------------------------------------------------------------
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PACKAGE_PARENT = os.path.abspath(os.path.join(_THIS_DIR, "..", ".."))
@@ -46,8 +46,8 @@ class BenchmarkQuestion:
     id: str
     question: str
     category: str  # e.g., "symbol_lookup", "cross_file", "config_setup"
-    ground_truth_files: list[str]  # required — file-level ground truth
-    ground_truth_chunks: list[dict] | None = None  # optional — chunk-level
+    ground_truth_files: list[str]  # required -- file-level ground truth
+    ground_truth_chunks: list[dict] | None = None  # optional -- chunk-level
     # Each chunk dict: {"file": str, "symbol_name": str}
     #              or: {"file": str, "line_start": int, "line_end": int}
     budget: int = 4000
@@ -445,7 +445,7 @@ class BenchmarkSuite:
         tfidf = get_backend(config, store)
         audit = AuditLog(os.path.join(mnemosyne_dir, "audit.log"))
 
-        # Dense backend (optional — requires onnxruntime)
+        # Dense backend (optional -- requires onnxruntime)
         dense_backend = None
         try:
             from mnemosyne.embeddings.dense_backend import DenseBackend
@@ -657,7 +657,7 @@ def discover_projects(
             root = os.path.abspath(os.path.join(mnemosyne_pkg_dir, root_raw))
 
         if not os.path.isdir(root):
-            print(f"  WARNING: skipping {name} — root not found: {root}")
+            print(f"  WARNING: skipping {name} -- root not found: {root}")
             continue
 
         projects.append(BenchmarkProject(
@@ -676,7 +676,7 @@ def discover_projects(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="MnemoSync Benchmark Suite — multi-project retrieval quality measurement "
+        description="MnemoSync Benchmark Suite -- multi-project retrieval quality measurement "
         "with file-level and chunk-level precision/recall."
     )
     parser.add_argument(

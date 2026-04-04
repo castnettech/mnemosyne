@@ -50,8 +50,8 @@ def compute_line_entropy(line: str) -> float:
 
     The score is a float in ``[0.0, 1.0]`` where:
     - ``0.0`` = empty or whitespace-only
-    - Low (~0.1 – 0.3) = lines composed mostly of structural keywords
-    - High (~0.7 – 1.0) = lines with unique identifiers, literals, operators
+    - Low (~0.1 - 0.3) = lines composed mostly of structural keywords
+    - High (~0.7 - 1.0) = lines with unique identifiers, literals, operators
 
     Algorithm:
     1. Extract tokens (alphanumeric + underscores).
@@ -71,7 +71,7 @@ def compute_line_entropy(line: str) -> float:
     # Extract word tokens
     tokens = re.findall(r"[a-zA-Z_]\w+", stripped)
     if not tokens:
-        # Pure punctuation / operators — moderately informative
+        # Pure punctuation / operators -- moderately informative
         return 0.3
 
     # Fraction of tokens that are not low-entropy structural keywords
@@ -86,7 +86,7 @@ def compute_line_entropy(line: str) -> float:
         p = count / total_chars
         char_entropy -= p * math.log2(p)
 
-    # Normalise character entropy by log2(len(unique chars)) — max possible
+    # Normalise character entropy by log2(len(unique chars)) -- max possible
     unique_chars = len(char_counts)
     max_char_entropy = math.log2(unique_chars) if unique_chars > 1 else 1.0
     normalised_char_entropy = char_entropy / max_char_entropy

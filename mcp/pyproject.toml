@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mnemosyne-mcp"
 version = "0.1.0"
-description = "MCP server for Mnemosyne — semantic code retrieval with 6-signal hybrid search and AST-aware compression"
+description = "MCP server for Mnemosyne -- semantic code retrieval with 6-signal hybrid search and AST-aware compression"
 readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.11"

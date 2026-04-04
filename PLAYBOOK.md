@@ -1,4 +1,4 @@
-# Mnemosyne — Setup & Test Playbook
+# Mnemosyne -- Setup & Test Playbook
 
 ## Prerequisites
 

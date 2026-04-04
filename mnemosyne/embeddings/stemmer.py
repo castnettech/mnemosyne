@@ -60,7 +60,7 @@ def stem(word: str) -> str:
 
     w = word.lower()
 
-    # Step 1a — plurals
+    # Step 1a -- plurals
     if w.endswith("sses"):
         w = w[:-2]
     elif w.endswith("ies"):
@@ -70,7 +70,7 @@ def stem(word: str) -> str:
     elif w.endswith("s"):
         w = w[:-1]
 
-    # Step 1b — -eed, -ed, -ing
+    # Step 1b -- -eed, -ed, -ing
     if w.endswith("eed"):
         base = w[:-3]
         if _measure(base) > 0:
@@ -86,11 +86,11 @@ def stem(word: str) -> str:
             w = base
             w = _step1b_fixup(w)
 
-    # Step 1c — y -> i
+    # Step 1c -- y -> i
     if w.endswith("y") and _has_vowel(w[:-1]) and len(w) > 2:
         w = w[:-1] + "i"
 
-    # Step 2 — double suffixes
+    # Step 2 -- double suffixes
     w = _step2(w)
 
     # Step 3
@@ -99,7 +99,7 @@ def stem(word: str) -> str:
     # Step 4
     w = _step4(w)
 
-    # Step 5a — remove trailing e
+    # Step 5a -- remove trailing e
     if w.endswith("e"):
         base = w[:-1]
         m = _measure(base)
@@ -108,7 +108,7 @@ def stem(word: str) -> str:
         elif m == 1 and not _ends_cvc(base):
             w = base
 
-    # Step 5b — double consonant with m > 1
+    # Step 5b -- double consonant with m > 1
     if _ends_double_consonant(w) and w[-1] == "l" and _measure(w[:-1]) > 1:
         w = w[:-1]
 

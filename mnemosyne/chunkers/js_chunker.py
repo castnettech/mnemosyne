@@ -85,7 +85,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "function",
     ),
     # const/let/var FOO = { ... }  or  const/let/var FOO = [ ... ]
-    # Data definitions (object literals, arrays) — named so they get the
+    # Data definitions (object literals, arrays) -- named so they get the
     # structured-code boost in retrieval ranking.
     (
         re.compile(
@@ -200,7 +200,7 @@ def _find_block_end(source: str, open_pos: int) -> int:
 
         i += 1
 
-    # Malformed source — return end of string
+    # Malformed source -- return end of string
     return n - 1
 
 
@@ -262,11 +262,11 @@ def _find_statement_end(source: str, start: int) -> int:
             i += 1
             continue
 
-        # Semicolon — end of statement
+        # Semicolon -- end of statement
         if ch == ";":
             return i
 
-        # Newline — end of concise body (common JS style)
+        # Newline -- end of concise body (common JS style)
         if ch == "\n":
             return i - 1 if i > start else i
 
@@ -347,7 +347,7 @@ class JSChunker:
         candidates = self._extract_symbols(source, lines)
 
         if not candidates:
-            # No recognisable declarations — fall back to sliding window.
+            # No recognisable declarations -- fall back to sliding window.
             return self._sliding_window(lines, symbol_name=None, chunk_type="block")
 
         # Post-process: split oversized chunks.
@@ -506,7 +506,7 @@ class JSChunker:
         brace_pos = _next_brace_or_statement_end(source, start)
 
         if brace_pos is None or source[brace_pos] != "{":
-            # No block body — concise arrow or abstract declaration.
+            # No block body -- concise arrow or abstract declaration.
             # Use end-of-statement as the chunk boundary.
             stmt_end = _find_statement_end(source, start)
             # Include trailing newline if present.
@@ -736,7 +736,7 @@ def _next_brace_or_statement_end(source: str, start: int) -> int | None:
     # Track whether we've passed the arrow (=>) so we know when a bare
     # newline terminates a concise body.
     after_arrow = False
-    paren_depth = 0  # depth of ( ) — ignore newlines inside parameter lists
+    paren_depth = 0  # depth of ( ) -- ignore newlines inside parameter lists
 
     while i < n:
         ch = source[i]

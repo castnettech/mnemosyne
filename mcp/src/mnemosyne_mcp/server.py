@@ -33,7 +33,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 # ---------------------------------------------------------------------------
-# Lazy engine initialization — only imports mnemosyne when first tool is called
+# Lazy engine initialization -- only imports mnemosyne when first tool is called
 # ---------------------------------------------------------------------------
 
 _engine_cache: dict[str, object] = {}

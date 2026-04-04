@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from mnemosyne.config import Config
 
 # ---------------------------------------------------------------------------
-# Extension → language mapping
+# Extension -> language mapping
 # ---------------------------------------------------------------------------
 
 LANGUAGE_MAP: dict[str, str] = {
@@ -88,7 +88,7 @@ def detect_language(file_path: str) -> str:
     extension is not in :data:`LANGUAGE_MAP`.
 
     Args:
-        file_path: Any string path or filename — only the extension is used.
+        file_path: Any string path or filename -- only the extension is used.
 
     Returns:
         A lowercase language tag string.
@@ -105,14 +105,14 @@ def get_chunker(
     Return an appropriately configured chunker for *language*.
 
     Dispatch rules (checked in order):
-    - ``"python"``                → :class:`CodeChunker` (AST-based)
-    - ``"javascript"``/``"typescript"`` → :class:`JSChunker` (regex+brace)
-    - ``"go"``                    → :class:`GoChunker` (regex+brace)
-    - ``"csharp"``                → :class:`CSharpChunker` (regex+brace)
-    - ``"rust"``                  → :class:`RustChunker` (regex+brace)
-    - ``"java"``/``"kotlin"``     → :class:`JavaChunker` (regex+brace)
-    - ``"markdown"``/``"text"``   → :class:`TextChunker` (heading/paragraph-aware)
-    - everything else             → :class:`GenericChunker` (sliding-window fallback)
+    - ``"python"``                -> :class:`CodeChunker` (AST-based)
+    - ``"javascript"``/``"typescript"`` -> :class:`JSChunker` (regex+brace)
+    - ``"go"``                    -> :class:`GoChunker` (regex+brace)
+    - ``"csharp"``                -> :class:`CSharpChunker` (regex+brace)
+    - ``"rust"``                  -> :class:`RustChunker` (regex+brace)
+    - ``"java"``/``"kotlin"``     -> :class:`JavaChunker` (regex+brace)
+    - ``"markdown"``/``"text"``   -> :class:`TextChunker` (heading/paragraph-aware)
+    - everything else             -> :class:`GenericChunker` (sliding-window fallback)
 
     Args:
         language: Language tag as returned by :func:`detect_language`.

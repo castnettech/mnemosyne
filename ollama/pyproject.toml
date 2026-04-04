@@ -3,16 +3,16 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mnemosyne-engine"
-version = "1.0.5"
-description = "LLM Context Compression and Retrieval Engine -- zero dependencies, sub-100ms queries, 40-70% token reduction"
+name = "mnemosyne-ollama"
+version = "0.1.0"
+description = "Ask your codebase questions using Ollama and Mnemosyne -- zero-config local code search"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 authors = [{name = "Cast Rock Innovation L.L.C."}]
-keywords = ["llm", "context", "compression", "retrieval", "token", "mnemosyne", "code-search", "bm25", "tfidf"]
+keywords = ["mnemosyne", "ollama", "mcp", "code-search", "local-llm", "rag", "tool-calling"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -20,27 +20,19 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
     "Topic :: Text Processing :: Indexing",
-    "Typing :: Typed",
+]
+
+dependencies = [
+    "mnemosyne-mcp>=0.1.0",
 ]
 
 [project.urls]
 Homepage = "https://castnettechnology.com"
 Repository = "https://github.com/castnettech/mnemosyne"
-Documentation = "https://github.com/castnettech/mnemosyne#readme"
 Issues = "https://github.com/castnettech/mnemosyne/issues"
 
 [project.scripts]
-mnemosyne = "mnemosyne.cli:main"
-
-[project.optional-dependencies]
-dense = ["onnxruntime>=1.17"]
-dev = ["pytest>=8.3"]
+mnemosyne-ollama = "mnemosyne_ollama.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["mnemosyne*"]
-
-[tool.pytest.ini_options]
-testpaths = ["mnemosyne/tests"]
-markers = [
-    "benchmark: Httpx regression benchmark (requires network for first run)",
-]
+where = ["src"]

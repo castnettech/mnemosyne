@@ -66,7 +66,7 @@ _INTERFACE_PATTERN = DeclPattern(
     name_group="name",
 )
 
-# const ( ... ) or var ( ... ) grouped blocks — paren-delimited, not brace
+# const ( ... ) or var ( ... ) grouped blocks -- paren-delimited, not brace
 _CONST_VAR_BLOCK = DeclPattern(
     pattern=re.compile(
         r"^[ \t]*(?P<name>(?:const|var))\s*\(",
@@ -77,7 +77,7 @@ _CONST_VAR_BLOCK = DeclPattern(
     has_block=False,
 )
 
-# import ( ... ) or import "..." — paren-delimited or single-line
+# import ( ... ) or import "..." -- paren-delimited or single-line
 _IMPORT_PATTERN = DeclPattern(
     pattern=re.compile(
         r"^[ \t]*(?P<name>import)\s*(?:\(|\")",
@@ -88,7 +88,7 @@ _IMPORT_PATTERN = DeclPattern(
     has_block=False,
 )
 
-# package declaration — single line, no block
+# package declaration -- single line, no block
 _PACKAGE_PATTERN = DeclPattern(
     pattern=re.compile(
         r"^[ \t]*(?P<name>package)\s+\w+",
@@ -100,7 +100,7 @@ _PACKAGE_PATTERN = DeclPattern(
 )
 
 
-# Ordered list — method pattern must precede plain function so that its
+# Ordered list -- method pattern must precede plain function so that its
 # regex match wins at the same offset when a receiver is present.
 _GO_PATTERNS: list[DeclPattern] = [
     _METHOD_PATTERN,

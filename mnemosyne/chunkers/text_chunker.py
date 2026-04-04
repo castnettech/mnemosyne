@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Heading pattern: H1 – H3 at the start of a line
+# Heading pattern: H1 - H3 at the start of a line
 # ---------------------------------------------------------------------------
 
 _HEADING_RE = re.compile(r"^#{1,3}\s+", re.MULTILINE)
@@ -71,7 +71,7 @@ class TextChunker:
 
     def _chunk_markdown(self, source: str) -> list[ChunkCandidate]:
         """
-        Split source at H1–H3 headings, then enforce token budget within each
+        Split source at H1-H3 headings, then enforce token budget within each
         section by splitting at paragraph or sentence boundaries.
         """
         lines = source.splitlines(keepends=True)
@@ -83,7 +83,7 @@ class TextChunker:
         ]
 
         if not heading_indices:
-            # No headings — treat as plain text
+            # No headings -- treat as plain text
             return self._chunk_plaintext(source)
 
         # Build sections: each section = heading line(s) + body until next heading
@@ -205,7 +205,7 @@ class TextChunker:
         """Split a candidate at sentence boundaries."""
         sentences = _SENTENCE_END_RE.split(cand.content)
         if len(sentences) <= 1:
-            # Cannot split further — return as-is, even if over budget
+            # Cannot split further -- return as-is, even if over budget
             return [cand]
         return self._reassemble_parts(sentences, cand)
 

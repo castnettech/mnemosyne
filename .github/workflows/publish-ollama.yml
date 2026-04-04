@@ -1,7 +1,7 @@
-# Publish mnemosyne-mcp to PyPI via OIDC Trusted Publisher
+# Publish mnemosyne-ollama to PyPI via OIDC Trusted Publisher
 #
 # Security model:
-#   - ONLY fires on GitHub Releases with tag prefix "mcp-v" (e.g. mcp-v0.2.0)
+#   - ONLY fires on GitHub Releases with tag prefix "ollama-v" (e.g. ollama-v0.1.0)
 #   - Build and publish are SEPARATE jobs (artifacts never modified after build)
 #   - All actions pinned to full SHA (immune to tag-hijack attacks)
 #   - Publish job requires "release" environment (approval + branch restriction)
@@ -10,34 +10,32 @@
 #   - No secrets, tokens, or passwords -- pure OIDC
 #
 # Required setup:
-#   1. PyPI: Add trusted publisher for mnemosyne-mcp
-#      (owner=castnettech, repo=mnemosyne, workflow=publish-mcp.yml, environment=release)
+#   1. PyPI: Add trusted publisher for mnemosyne-ollama
+#      (owner=castnettech, repo=mnemosyne, workflow=publish-ollama.yml, environment=release)
 #   2. GitHub: "release" environment already exists -- ensure it covers this workflow
 #
 # Tag convention:
-#   Core engine uses "v1.0.4" tags -> triggers publish.yml
-#   MCP server uses "mcp-v0.1.0" tags -> triggers this workflow
-#   This prevents one release from accidentally publishing both packages.
+#   Core engine uses "v1.0.5" tags -> triggers publish.yml
+#   MCP server uses "mcp-v0.1.0" tags -> triggers publish-mcp.yml
+#   Ollama bridge uses "ollama-v0.1.0" tags -> triggers this workflow
 
-name: Publish MCP to PyPI
+name: Publish Ollama to PyPI
 
 on:
   release:
     types: [published]
 
-# Top-level: deny all permissions by default
 permissions: {}
 
 jobs:
-  # -- Gate: verify release is an MCP release targeting main ----------
   verify:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Reject non-MCP release tags
-        if: "!startsWith(github.event.release.tag_name, 'mcp-v')"
+      - name: Reject non-Ollama release tags
+        if: "!startsWith(github.event.release.tag_name, 'ollama-v')"
         run: |
-          echo "::error::This workflow only handles mcp-v* tags. Got '${{ github.event.release.tag_name }}'."
+          echo "::error::This workflow only handles ollama-v* tags. Got '${{ github.event.release.tag_name }}'."
           exit 1
 
       - name: Reject releases not targeting main
@@ -52,12 +50,11 @@ jobs:
           echo "::error::Pre-releases are not published to PyPI."
           exit 1
 
-  # -- Build: produce distribution artifacts from mcp/ ----------------
   build:
     needs: [verify]
     runs-on: ubuntu-latest
     permissions:
-      contents: read       # checkout only
+      contents: read
     steps:
       - name: Checkout pinned to release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -65,19 +62,19 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
-      - name: Verify tag matches mcp/pyproject.toml version
+      - name: Verify tag matches ollama/pyproject.toml version
         run: |
-          TAG="${GITHUB_REF_NAME#mcp-v}"
+          TAG="${GITHUB_REF_NAME#ollama-v}"
           PKG_VERSION=$(python3 -c "
           import re, pathlib
-          text = pathlib.Path('mcp/pyproject.toml').read_text()
+          text = pathlib.Path('ollama/pyproject.toml').read_text()
           m = re.search(r'^version\s*=\s*\"([^\"]+)\"', text, re.M)
           print(m.group(1) if m else 'UNKNOWN')
           ")
           echo "Tag version:    $TAG"
           echo "Package version: $PKG_VERSION"
           if [ "$TAG" != "$PKG_VERSION" ]; then
-            echo "::error::Tag 'mcp-v$TAG' does not match mcp/pyproject.toml version '$PKG_VERSION'"
+            echo "::error::Tag 'ollama-v$TAG' does not match ollama/pyproject.toml version '$PKG_VERSION'"
             exit 1
           fi
 
@@ -90,13 +87,13 @@ jobs:
         run: pip install --upgrade build
 
       - name: Build sdist and wheel
-        run: python -m build mcp/
+        run: python -m build ollama/
 
       - name: Verify dist contents
         run: |
-          ls -la mcp/dist/
-          SDIST_COUNT=$(ls mcp/dist/*.tar.gz 2>/dev/null | wc -l)
-          WHEEL_COUNT=$(ls mcp/dist/*.whl 2>/dev/null | wc -l)
+          ls -la ollama/dist/
+          SDIST_COUNT=$(ls ollama/dist/*.tar.gz 2>/dev/null | wc -l)
+          WHEEL_COUNT=$(ls ollama/dist/*.whl 2>/dev/null | wc -l)
           if [ "$SDIST_COUNT" -ne 1 ] || [ "$WHEEL_COUNT" -ne 1 ]; then
             echo "::error::Expected 1 sdist + 1 wheel, got $SDIST_COUNT sdist + $WHEEL_COUNT wheel"
             exit 1
@@ -105,25 +102,24 @@ jobs:
       - name: Upload dist artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: mcp-dist
-          path: mcp/dist/
+          name: ollama-dist
+          path: ollama/dist/
           if-no-files-found: error
           retention-days: 5
 
-  # -- Publish: push to PyPI via OIDC ---------------------------------
   publish:
     needs: [build]
     runs-on: ubuntu-latest
-    environment: release    # requires environment approval + branch restriction
+    environment: release
     permissions:
-      id-token: write       # OIDC token for PyPI trusted publisher
-      attestations: write   # artifact attestation (provenance signing)
-      contents: read        # needed for attestation to read repo
+      id-token: write
+      attestations: write
+      contents: read
     steps:
       - name: Download dist artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          name: mcp-dist
+          name: ollama-dist
           path: dist/
 
       - name: Generate artifact attestation
@@ -133,4 +129,3 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
-        # No token needed -- OIDC trusted publisher handles authentication

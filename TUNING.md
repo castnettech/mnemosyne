@@ -1,13 +1,13 @@
-# Mnemosyne — Precision Tuning Guide
+# Mnemosyne -- Precision Tuning Guide
 
-## Version 0.2.0 — Updated 2026-03-22
+## Version 0.2.0 -- Updated 2026-03-22
 
 ---
 
 ## Clearing the Index (Reset)
 
 ```bash
-# Full reset — delete everything and start fresh
+# Full reset -- delete everything and start fresh
 rm -rf .mnemosyne
 python3 -m mnemosyne init
 python3 -m mnemosyne ingest
@@ -62,7 +62,7 @@ ignore_patterns = ["marketing", "docs", "vendor", "dist", "build"]
 
 These patterns are **added to** the hardened defaults (which include `.git`,
 `node_modules`, `__pycache__`, `.env`, `*.pem`, `*.key`, `credentials.json`,
-`package-lock.json`, etc.). You cannot accidentally remove security patterns —
+`package-lock.json`, etc.). You cannot accidentally remove security patterns --
 the config merge uses list union.
 
 ### 2. Use language-aware chunking
@@ -137,7 +137,7 @@ v0.2.0 scans retrieved files for `import`, `require()`, and runtime
 namespace access patterns (e.g., `MyApp.Utils`). Connected files are
 injected into results even if they share no keywords with the query.
 
-This is how `utils.js` gets surfaced when `analyzer.js` is found — the
+This is how `utils.js` gets surfaced when `analyzer.js` is found -- the
 graph detects namespace references like `var utils = App.Utils` and injects utils.js.
 
 No configuration needed. Works for any JS/TS/Python project with standard
@@ -168,10 +168,10 @@ symbol names (Python and JS/TS supported).
 
 | Signal | Effect |
 |---|---|
-| HTML/CSS/Markdown/TXT chunks | 0.85 boilerplate penalty — demoted below code |
-| Test directory chunks (`tests/`, `test/`) | 0.5 boilerplate penalty — secondary to source |
+| HTML/CSS/Markdown/TXT chunks | 0.85 boilerplate penalty -- demoted below code |
+| Test directory chunks (`tests/`, `test/`) | 0.5 boilerplate penalty -- secondary to source |
 | Boilerplate code patterns (imports, logging, assignments) | Detected by `density.py`, penalized proportionally |
-| Chunks without `symbol_name` | No 2x structured code boost — lose to named chunks |
+| Chunks without `symbol_name` | No 2x structured code boost -- lose to named chunks |
 
 ### Manual exclusions
 
@@ -193,12 +193,12 @@ python3 -m mnemosyne.tests.benchmark --project-root /path/to/project --budget 40
 ```
 
 The benchmark reports:
-- **Token reduction** — raw tokens vs. mnemosyne tokens per query
-- **Retrieval precision** — fraction of retrieved files that are ground truth
-- **Retrieval recall** — fraction of ground truth files that are retrieved
-- **Compression ratios** — per-file compression effectiveness
-- **Speed** — ingest time, query latency, baseline read time
-- **Storage** — index size vs. raw source size
+- **Token reduction** -- raw tokens vs. mnemosyne tokens per query
+- **Retrieval precision** -- fraction of retrieved files that are ground truth
+- **Retrieval recall** -- fraction of ground truth files that are retrieved
+- **Compression ratios** -- per-file compression effectiveness
+- **Speed** -- ingest time, query latency, baseline read time
+- **Storage** -- index size vs. raw source size
 
 ### Current benchmark results (25 files, no project-specific overrides)
 
@@ -219,7 +219,7 @@ The benchmark reports:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Security patterns missing from index | TOML was overriding defaults | Fixed in v0.2.0 — list union, not replacement |
+| Security patterns missing from index | TOML was overriding defaults | Fixed in v0.2.0 -- list union, not replacement |
 | Test files dominate all queries | Tests exercise many features | Automatic 0.5 test penalty in v0.2.0 |
 | HTML/legal pages outrank source code | Prose matches query keywords | Automatic 0.85 HTML penalty in v0.2.0 |
 | Utility files never found | No keyword overlap | Import graph auto-injects connected files |

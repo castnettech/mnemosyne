@@ -73,7 +73,7 @@ class MnemosyneDaemon:
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind(self._socket_path)
-        # P1: Restrict socket to owner only — prevents unauthorized local access
+        # P1: Restrict socket to owner only -- prevents unauthorized local access
         os.chmod(self._socket_path, 0o600)
         self._sock.listen(5)
         self._sock.setblocking(False)
@@ -254,7 +254,7 @@ class MnemosyneDaemon:
         try:
             bloom = BloomFilter.load(bloom_path) if os.path.isfile(bloom_path) else BloomFilter()
         except Exception:
-            logger.warning("Could not load Bloom filter in daemon — creating new")
+            logger.warning("Could not load Bloom filter in daemon -- creating new")
             bloom = BloomFilter()
 
         ingester = Ingester(
@@ -269,7 +269,7 @@ class MnemosyneDaemon:
             for p in paths:
                 real = os.path.realpath(os.path.join(self.project_root, p))
                 if not real.startswith(self.project_root + os.sep) and real != self.project_root:
-                    raise ValueError(f"Path '{p}' resolves outside project root — rejected.")
+                    raise ValueError(f"Path '{p}' resolves outside project root -- rejected.")
                 validated.append(real)
             paths = validated
         stats = ingester.ingest(paths=paths, full=params.get("full", False), dry_run=False)
@@ -283,7 +283,7 @@ class MnemosyneDaemon:
             if all_embs and hasattr(self.tfidf, "build_inverted_index"):
                 self.tfidf.build_inverted_index(all_embs)
         except Exception:
-            logger.error("Failed to rebuild inverted index after ingest — queries may return stale results")
+            logger.error("Failed to rebuild inverted index after ingest -- queries may return stale results")
         return stats
 
     def _handle_stats(self, params: dict) -> dict:

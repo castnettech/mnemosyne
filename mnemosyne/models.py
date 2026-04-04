@@ -4,7 +4,7 @@
 """
 Domain model dataclasses for Mnemosyne.
 
-All objects are pure-Python dataclasses — no ORM, no external deps.
+All objects are pure-Python dataclasses -- no ORM, no external deps.
 The ``estimate_tokens`` utility provides a lightweight word-count proxy for
 token estimation, sufficient for budget gating before a real tokeniser is
 available.
@@ -57,7 +57,7 @@ class Chunk:
 
     Attributes:
         chunk_id:          Database primary key (None before insert).
-        file_id:           FK → FileRecord.file_id.
+        file_id:           FK -> FileRecord.file_id.
         content_hash:      SHA-256 of the chunk's normalised content.
         chunk_type:        Structural category of the chunk content.
                            One of: ``'function'``, ``'class'``, ``'paragraph'``,
@@ -102,7 +102,7 @@ class Summary:
         scope_path: The path (or chunk hash) that identifies the summarised unit.
         content:    The summary text itself.
         token_count: Approximate token count of *content*.
-        parent_id:  FK → Summary.summary_id of the enclosing scope, or None for
+        parent_id:  FK -> Summary.summary_id of the enclosing scope, or None for
                     top-level summaries.
         version:    Monotonically increasing integer; incremented on each re-summary.
     """
@@ -159,12 +159,12 @@ class CacheEntry:
     Represents a chunk's position within the ARC (Adaptive Replacement Cache).
 
     Attributes:
-        chunk_id:      FK → Chunk.chunk_id.
+        chunk_id:      FK -> Chunk.chunk_id.
         tier:          ARC tier name.
                        One of: ``'T1'`` (recent, not recurrent),
                        ``'T2'`` (recent and recurrent),
-                       ``'B1'`` (ghost — evicted from T1),
-                       ``'B2'`` (ghost — evicted from T2).
+                       ``'B1'`` (ghost -- evicted from T1),
+                       ``'B2'`` (ghost -- evicted from T2).
         access_count:  Total number of cache hits for this entry in the current
                        session.
         last_accessed: ISO-8601 UTC timestamp of the most recent access.
@@ -183,7 +183,7 @@ class UsageEvent:
 
     Attributes:
         event_id:   Database primary key (None before insert).
-        chunk_id:   FK → Chunk.chunk_id.
+        chunk_id:   FK -> Chunk.chunk_id.
         query_text: The raw query string that surfaced this chunk, or None if
                     the event was triggered by a non-query action.
         session_id: Opaque session identifier for grouping related events.
@@ -212,7 +212,7 @@ def estimate_tokens(text: str) -> int:
     """
     Approximate the token count of *text* using a word-split heuristic.
 
-    This is intentionally cheap — it is used for budget gating and chunk
+    This is intentionally cheap -- it is used for budget gating and chunk
     sizing, not for precise billing or model-specific tokenisation.
 
     Rule: ``max(1, len(text.split()))`` (whitespace-delimited words as a proxy

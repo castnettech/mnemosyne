@@ -14,7 +14,7 @@ pytest mnemosyne/tests/
 ## Guidelines
 
 - **Zero runtime dependencies.** Contributions adding runtime deps will not be accepted. The stdlib-only constraint is a core design decision, not a temporary limitation.
-- **Tests required.** Every PR must include tests. The baseline is 293+ tests — don't lower it.
+- **Tests required.** Every PR must include tests. The baseline is 293+ tests -- don't lower it.
 - **One concern per PR.** Keep changes focused. A bug fix is not a refactor opportunity.
 - **Run the full suite** before submitting: `pytest mnemosyne/tests/ -q`
 
@@ -22,7 +22,7 @@ pytest mnemosyne/tests/
 
 - Python 3.11+ type annotations
 - No docstring is better than a wrong docstring
-- Follow existing patterns — read neighboring code before writing new code
+- Follow existing patterns -- read neighboring code before writing new code
 
 ## Reporting Issues
 

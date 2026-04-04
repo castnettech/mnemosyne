@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-Mnemosyne Benchmark — single-project edition.
+Mnemosyne Benchmark -- single-project edition.
 
 Measures token reduction, retrieval precision, compression ratios, query
 speed, and storage overhead for the Mnemosyne context engine against a
@@ -21,7 +21,7 @@ import sys
 import time
 
 # ---------------------------------------------------------------------------
-# Path bootstrap — make sure the mnemosyne package is importable when this
+# Path bootstrap -- make sure the mnemosyne package is importable when this
 # script is run directly (i.e. not as part of the package).
 # ---------------------------------------------------------------------------
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +48,7 @@ def get_sample_questions() -> list[dict]:
     return []
 
 
-# Module-level constant — backward compatibility with code that references
+# Module-level constant -- backward compatibility with code that references
 # ``benchmark.BENCHMARK_QUESTIONS`` directly.
 BENCHMARK_QUESTIONS: list[dict] = []
 
@@ -106,7 +106,7 @@ class MnemosyneBenchmark:
                 os.remove(f)
         os.makedirs(self.mnemosyne_dir, exist_ok=True)
 
-        # 2. Build config — only add universally-correct ignore patterns.
+        # 2. Build config -- only add universally-correct ignore patterns.
         #    NO project-specific overrides. The engine must rank properly
         #    using its own signals (density, symbol matching, TF-IDF).
         self.config = Config(root=self.project_root)
@@ -453,7 +453,7 @@ class MnemosyneBenchmark:
         lines.append("")
         lines.append("  Retrieved vs Ground Truth (detail):")
         for r in results["precision"]:
-            lines.append(f"    {r['id']} — {r['challenge']}")
+            lines.append(f"    {r['id']} -- {r['challenge']}")
             lines.append(f"      Ground truth : {', '.join(r['ground_truth_files'])}")
             lines.append(f"      Retrieved    : {', '.join(r['retrieved_files']) or '(none)'}")
 
@@ -554,7 +554,7 @@ class MnemosyneBenchmark:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Mnemosyne Benchmark — measures token reduction, retrieval precision, "
+        description="Mnemosyne Benchmark -- measures token reduction, retrieval precision, "
         "compression, speed, and storage overhead against a target project."
     )
     parser.add_argument(
@@ -575,7 +575,7 @@ def main() -> None:
     print("Setting up Mnemosyne...")
     ingest_stats = bench.setup()
     print(
-        f"  Ingest complete — {ingest_stats.get('files_indexed', '?')} files indexed, "
+        f"  Ingest complete -- {ingest_stats.get('files_indexed', '?')} files indexed, "
         f"{ingest_stats.get('chunks_added', '?')} chunks added "
         f"({ingest_stats.get('elapsed_seconds', 0):.2f}s)"
     )

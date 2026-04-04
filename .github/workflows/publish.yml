@@ -7,7 +7,7 @@
 #   - Publish job requires "release" environment (configure approval rules in GitHub Settings)
 #   - Minimal permissions per job (least-privilege)
 #   - Artifact attestation creates a signed provenance record (SLSA Level 2)
-#   - No secrets, tokens, or passwords anywhere — pure OIDC
+#   - No secrets, tokens, or passwords anywhere -- pure OIDC
 #
 # Required setup:
 #   1. PyPI: Add trusted publisher (owner=castnettech, repo=mnemosyne, workflow=publish.yml, environment=release)
@@ -25,7 +25,7 @@ on:
 permissions: {}
 
 jobs:
-  # ── Gate: verify release targets main ──────────────────────────────
+  # -- Gate: verify release targets main ------------------------------
   verify:
     runs-on: ubuntu-latest
     permissions: {}
@@ -34,6 +34,12 @@ jobs:
         if: startsWith(github.event.release.tag_name, 'mcp-v')
         run: |
           echo "::error::MCP releases use publish-mcp.yml, not this workflow. Got '${{ github.event.release.tag_name }}'."
+          exit 1
+
+      - name: Reject Ollama release tags
+        if: startsWith(github.event.release.tag_name, 'ollama-v')
+        run: |
+          echo "::error::Ollama releases use publish-ollama.yml, not this workflow. Got '${{ github.event.release.tag_name }}'."
           exit 1
 
       - name: Reject releases not targeting main
@@ -48,7 +54,7 @@ jobs:
           echo "::error::Pre-releases are not published to PyPI."
           exit 1
 
-  # ── Build: produce distribution artifacts ──────────────────────────
+  # -- Build: produce distribution artifacts --------------------------
   build:
     needs: [verify]
     runs-on: ubuntu-latest
@@ -107,7 +113,7 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
-  # ── Publish: push to PyPI via OIDC ─────────────────────────────────
+  # -- Publish: push to PyPI via OIDC ---------------------------------
   publish:
     needs: [build]
     runs-on: ubuntu-latest
@@ -130,4 +136,4 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
-        # No token needed — OIDC trusted publisher handles authentication
+        # No token needed -- OIDC trusted publisher handles authentication

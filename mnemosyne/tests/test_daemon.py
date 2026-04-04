@@ -248,7 +248,7 @@ class TestDaemonHandlesInvalidJson(_DaemonTestBase):
         """An empty payload should not cause the daemon to crash."""
         self._start_daemon_in_thread()
 
-        # Send empty bytes — server should handle gracefully.
+        # Send empty bytes -- server should handle gracefully.
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(2.0)
         try:
@@ -376,7 +376,7 @@ class TestDaemonSecurity(_DaemonTestBase):
     """Security tests for P1 (socket permissions) and P2 (path validation)."""
 
     def test_socket_permissions_owner_only(self):
-        """P1: Daemon socket should be chmod 0600 — owner read/write only."""
+        """P1: Daemon socket should be chmod 0600 -- owner read/write only."""
         self._start_daemon_in_thread()
         mode = os.stat(self.daemon._socket_path).st_mode & 0o777
         self.assertEqual(mode, 0o600, f"Socket permissions should be 0600, got {oct(mode)}")
@@ -386,7 +386,7 @@ class TestDaemonSecurity(_DaemonTestBase):
         self._start_daemon_in_thread()
         # Ingest a file and do initial indexing first
         self._send_request({"method": "ingest", "params": {}})
-        # Now try to ingest /etc/passwd — must be rejected
+        # Now try to ingest /etc/passwd -- must be rejected
         resp = self._send_request({
             "method": "ingest",
             "params": {"paths": ["/etc/passwd"]},
@@ -411,7 +411,7 @@ class TestDaemonSecurity(_DaemonTestBase):
             "method": "ingest",
             "params": {"paths": ["src/auth.py"]},
         })
-        # Should succeed — no error
+        # Should succeed -- no error
         self.assertIsNone(resp.get("error"), f"Valid path should succeed: {resp.get('error')}")
         result = resp.get("result", {})
         self.assertGreaterEqual(result.get("files_scanned", 0), 1)

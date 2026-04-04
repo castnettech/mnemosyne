@@ -419,7 +419,7 @@ class TestEndToEnd(unittest.TestCase):
         # 2. Delete the file from disk
         os.remove(target_abs)
 
-        # 3. Run GC logic — mirrors cmd_gc() but uses our in-memory objects
+        # 3. Run GC logic -- mirrors cmd_gc() but uses our in-memory objects
         #    Mark missing files as deleted and remove their chunks
         for file_record in self.store.get_all_file_records():
             if file_record.is_deleted:
@@ -463,7 +463,7 @@ class TestEndToEnd(unittest.TestCase):
             "Bloom should still contain surviving file paths",
         )
 
-        # 6. Re-create the deleted file and ingest again — it must be re-indexed
+        # 6. Re-create the deleted file and ingest again -- it must be re-indexed
         os.makedirs(os.path.dirname(target_abs), exist_ok=True)
         with open(target_abs, "w") as f:
             f.write(PYTHON_FILE)

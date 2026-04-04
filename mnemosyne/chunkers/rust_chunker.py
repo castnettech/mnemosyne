@@ -95,7 +95,7 @@ _MOD = DeclPattern(
     name_group="name",
 )
 
-# use ... ;  (import runs) — statement-level, no block
+# use ... ;  (import runs) -- statement-level, no block
 _USE = DeclPattern(
     pattern=re.compile(
         r"^[ \t]*(?P<name>use)\s+[\w:]+",

@@ -1,4 +1,4 @@
-# Commercial Licensing — Mnemosyne
+# Commercial Licensing -- Mnemosyne
 
 Mnemosyne is open source under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
@@ -23,7 +23,7 @@ Contact Cast Rock Innovation L.L.C.:
 - Email: support@castnettechnology.com
 - Website: https://castnettechnology.com
 
-Commercial licenses are negotiated on a per-case basis. We aim to be fair and accessible — our goal is to support the ecosystem, not to gatekeep.
+Commercial licenses are negotiated on a per-case basis. We aim to be fair and accessible -- our goal is to support the ecosystem, not to gatekeep.
 
 ## Contributor License Agreement (CLA)
 

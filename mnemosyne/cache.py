@@ -26,10 +26,10 @@ class ARCCache:
 
     The cache is partitioned into four ordered dictionaries:
 
-    * **T1** — recently-inserted items seen exactly once.
-    * **T2** — frequently-accessed items (promoted from T1 or re-hit in T2).
-    * **B1** — ghost keys evicted from T1 (no data stored).
-    * **B2** — ghost keys evicted from T2 (no data stored).
+    * **T1** -- recently-inserted items seen exactly once.
+    * **T2** -- frequently-accessed items (promoted from T1 or re-hit in T2).
+    * **B1** -- ghost keys evicted from T1 (no data stored).
+    * **B2** -- ghost keys evicted from T2 (no data stored).
 
     The adaptive parameter *p* (target T1 size) grows when a B1 hit occurs
     (recency is underrepresented) and shrinks when a B2 hit occurs (frequency
@@ -65,8 +65,8 @@ class ARCCache:
 
         On a hit the entry is promoted/refreshed according to ARC rules:
 
-        * T1 hit → move to MRU end of T2 (first access seen twice = frequent).
-        * T2 hit → move to MRU end of T2 (refresh LRU clock).
+        * T1 hit -> move to MRU end of T2 (first access seen twice = frequent).
+        * T2 hit -> move to MRU end of T2 (refresh LRU clock).
 
         Returns:
             The :class:`~mnemosyne.models.Chunk` if present, else ``None``.
@@ -94,14 +94,14 @@ class ARCCache:
 
         ARC insertion rules:
 
-        * **B1 ghost hit** — increase *p* (recency should grow), insert into T2.
-        * **B2 ghost hit** — decrease *p* (frequency should grow), insert into T2.
-        * **Already in T1 or T2** — update value in-place, refresh T2 position.
-        * **New entry** — insert into T1.
+        * **B1 ghost hit** -- increase *p* (recency should grow), insert into T2.
+        * **B2 ghost hit** -- decrease *p* (frequency should grow), insert into T2.
+        * **Already in T1 or T2** -- update value in-place, refresh T2 position.
+        * **New entry** -- insert into T1.
 
         Triggers :meth:`_evict` whenever ``len(T1) + len(T2) >= capacity``.
         """
-        # Already live — just refresh
+        # Already live -- just refresh
         if chunk_id in self.t1:
             self.t1[chunk_id] = chunk
             return
@@ -111,7 +111,7 @@ class ARCCache:
             return
 
         if chunk_id in self.b1:
-            # Ghost hit in B1: recency was underrepresented → grow T1 target
+            # Ghost hit in B1: recency was underrepresented -> grow T1 target
             delta = max(1, len(self.b2) // max(1, len(self.b1)))
             self.p = min(self.c, self.p + delta)
             del self.b1[chunk_id]
@@ -123,7 +123,7 @@ class ARCCache:
             return
 
         if chunk_id in self.b2:
-            # Ghost hit in B2: frequency was underrepresented → shrink T1 target
+            # Ghost hit in B2: frequency was underrepresented -> shrink T1 target
             delta = max(1, len(self.b1) // max(1, len(self.b2)))
             self.p = max(0, self.p - delta)
             del self.b2[chunk_id]
@@ -134,7 +134,7 @@ class ARCCache:
             self.t2.move_to_end(chunk_id)
             return
 
-        # Brand new entry → T1
+        # Brand new entry -> T1
         if len(self.t1) + len(self.t2) >= self.c:
             self._evict()
         self.t1[chunk_id] = chunk

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-M-GATE — httpx benchmark regression gate.
+M-GATE -- httpx benchmark regression gate.
 
 Clones httpx 0.28.1 (cached), indexes it with Mnemosyne, runs 6 retrieval
 questions, and asserts that key metrics do not regress below the established

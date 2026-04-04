@@ -1,4 +1,4 @@
-# Mnemosyne — Reference Documentation
+# Mnemosyne -- Reference Documentation
 
 Complete CLI reference, configuration options, architecture overview, and integration guides. For a quick overview, see [README.md](README.md).
 
@@ -48,11 +48,8 @@ python -m mnemosyne init
 ```
 
 This creates:
-```
-.mnemosyne/
-├── config.toml       # editable configuration
-└── mnemosyne.db      # SQLite database (WAL mode)
-```
+
+![Workspace Structure](docs/assets/diagrams/workspace-tree.png)
 
 ### Index Your Project
 
@@ -109,7 +106,7 @@ Original tokens: 842
 Compressed:      341
 Char ratio:      40.5%
 
-────────────────────────────────────────────────────────────
+------------------------------------------------------------
 # [8 imports: os, sys, re, hashlib, datetime, jwt, models, config]
 
 class AuthManager:
@@ -219,7 +216,7 @@ Mnemosyne is a standalone CLI tool. All consumers interact with Mnemosyne direct
 Add this near the top of your project's `CLAUDE.md`:
 
 ```markdown
-## Context Retrieval — MANDATORY
+## Context Retrieval -- MANDATORY
 
 Before answering any question about this codebase, ALWAYS query the Mnemosyne index first:
 
@@ -300,7 +297,7 @@ python -m mnemosyne ingest $(git diff --cached --name-only)
 
 Initialize a `.mnemosyne/` workspace in the current directory.
 
-Creates `.mnemosyne/config.toml` with all default values and `.mnemosyne/mnemosyne.db` with the full schema applied. Safe to run in an existing project — exits immediately if `.mnemosyne/` already exists.
+Creates `.mnemosyne/config.toml` with all default values and `.mnemosyne/mnemosyne.db` with the full schema applied. Safe to run in an existing project -- exits immediately if `.mnemosyne/` already exists.
 
 **No flags.**
 
@@ -381,7 +378,7 @@ Preview the four-stage compression pipeline for a single file.
 | Argument | Description |
 |---|---|
 | `file` | Path to the file to compress. |
-| `--ratio` | Override the target compression ratio (0.0–1.0). Default: from `compression.target_ratio` in config (default: 0.4). |
+| `--ratio` | Override the target compression ratio (0.0-1.0). Default: from `compression.target_ratio` in config (default: 0.4). |
 
 Displays original token count, compressed token count, character ratio, and the compressed output.
 
@@ -544,206 +541,23 @@ Configuration is read from `.mnemosyne/config.toml` in the project root, deep-me
 
 ## Architecture Overview
 
-Mnemosyne is organized into two primary pipelines — ingestion and retrieval — connected by a persistent SQLite store with WAL mode, FTS5 full-text search, and JSON1 for sparse embedding storage.
+Mnemosyne is organized into two primary pipelines -- ingestion and retrieval -- connected by a persistent SQLite store with WAL mode, FTS5 full-text search, and JSON1 for sparse embedding storage.
 
 ### Ingestion Pipeline
 
-```
-Project Files on Disk
-        |
-        v
-  [ File Scanner ]  (Ingester._scan_files)
-  - Extension filter (.py, .js, .ts, .md, ...)
-  - Size cap (default 512 KB)
-  - fnmatch-based ignore patterns (.git, node_modules, __pycache__, ...)
-        |
-        v
-  [ Change Detection ]  (Ingester._needs_indexing)
-  - Bloom filter O(1) "definitely not indexed" check
-  - mtime comparison (fast path)
-  - SHA-256 content hash comparison (confirm path)
-        |
-        v
-  [ Language Detection ]  (chunkers.detect_language)
-  - Extension-based: .py -> python, .js -> javascript, .ts -> typescript, ...
-        |
-        v
-  [ Chunker ]  (CodeChunker / JSChunker / BraceChunker family / TextChunker / GenericChunker)
-  - Python:      AST walk -> function chunks, class chunks, import blocks, loose blocks
-  - JavaScript:  Regex-structural -> functions, classes, arrow consts, object literals, methods
-  - TypeScript:  Same as JavaScript
-  - Go:          Brace-based -> funcs, methods, types, structs, interfaces (GoChunker)
-  - C#:          Brace-based -> classes, methods, properties, namespaces (CSharpChunker)
-  - Rust:        Brace-based -> fn, impl, struct, enum, trait, mod (RustChunker)
-  - Java/Kotlin: Brace-based -> classes, methods, interfaces, enums (JavaChunker)
-  - Text/MD:     Paragraph-boundary splitting with configurable overlap
-  - Generic:     Line-count sliding window with configurable overlap
-  - Output:      ChunkCandidate(content, chunk_type, line_start, line_end, symbol_name)
-        |
-        v
-  [ Content Deduplication ]  (hasher.content_hash)
-  - SHA-256 of whitespace-normalised content
-  - Cross-file dedup: identical chunks stored once regardless of location
-        |
-        v
-  [ Store.save_chunk ]  (store.py + schema.py)
-  - SQLite WAL mode: concurrent reads during writes
-  - FTS5 virtual table: BM25 index auto-maintained via trigger
-  - JSON1: sparse embedding weights stored as term->weight dicts
-        |
-        v
-  [ TF-IDF Vocabulary Build ]  (TFIDFBackend.build_vocabulary)
-  - Runs after all files in the batch are stored (corpus-level IDF is valid)
-  - camelCase / snake_case token splitting for code identifiers
-  - Augmented TF: 0.5 + 0.5 * (count / max_count)
-  - Smoothed IDF: log((N+1) / (df+1)) + 1
-        |
-        v
-  [ Bloom Filter Update + Audit Log ]
-  - Bloom filter records file path and chunk hash for fast future checks
-  - AuditLog appends a JSON line: op=ingest_complete, counts, elapsed
-```
+![Ingestion Pipeline](docs/assets/diagrams/ingestion-pipeline.png)
 
 ### Retrieval Pipeline
 
-```
-Query String  +  Token Budget
-        |
-        v
-  [ BM25 Search ]  (RetrievalEngine._bm25_search)
-  - FTS5 MATCH query with FTS5 special-character escaping
-  - OR-joined terms for broader recall on natural-language queries
-  - Scores normalised to [0, 1] relative to top result
-        |
-        v (parallel)
-  [ TF-IDF Vector Search ]  (TFIDFBackend.search)
-  - Inverted index lookup: only query terms consulted (sub-linear)
-  - Cosine-like dot product over sparse vectors
-        |
-        v (parallel)
-  [ Usage Frequency Scores ]  (Analytics.get_usage_scores)
-  - 'selected' and 'used' events retrieved from SQLite
-  - Exponential decay: score = 2^(-age_days / halflife)
-  - Default halflife: 7 days
-        |
-        v (parallel)
-  [ Predictive Pre-fetch ]  (Prefetcher.get_prefetch_ids)
-  - Query signature: sorted deduplicated token set -> MD5 fingerprint
-  - Pattern lookup: if pattern seen >= min_hits times, boost associated chunks
-        |
-        v
-  [ Symbol Name Search ]  (RetrievalEngine._symbol_search)
-  - Matches query identifiers against chunk symbol_name column
-  - Exact match: score 1.0; component overlap: proportional score
-        |
-        v (merge)
-  [ RRF Fusion ]  (ranking.rrf_fuse)
-  - Reciprocal Rank Fusion across BM25, vector, symbol, usage, prefetch signals
-  - rrf_score(id) = sum(weight[src] / (k + rank[src](id)))
-  - Symbol match multiplier: 3x post-RRF boost for exact symbol hits
-  - Configurable per-source weights (default: BM25=0.4, vector=0.4, usage=0.2)
-        |
-        v
-  [ Filename Boost ]  (RetrievalEngine._filename_boost)
-  - 4-char prefix matching: query term "scoring" boosts "scorer.js"
-  - Injects chunks from filename-matched files missing from RRF results
-        |
-        v
-  [ Import/Namespace Graph ]  (RetrievalEngine._import_graph_boost)
-  - Parses import/require and Namespace.Module references from retrieved files
-  - Injects connected files (up to 4) that share no keywords with query
-  - Source files prioritised over test files by reference count
-        |
-        v
-  [ File-Level Filter ]  (RetrievalEngine._file_level_filter)
-  - Keeps top 6 files by aggregate RRF score to prevent budget dilution
-        |
-        v
-  [ Cost-Model Re-ranking ]  (ranking.cost_model_score)
-  - value_density = rrf_score * code_boost / (1 + ln(1 + token_count))
-  - 2x boost for chunks with symbol_name (function, class, named const)
-  - 0.85 boilerplate penalty for HTML/CSS/Markdown
-  - 0.5 penalty for test directory files
-        |
-        v
-  [ Budget Cutting ]  (ranking.budget_cut)
-  - Greedy selection: highest density first, accumulate until budget exhausted
-  - Compression fallback: if chunk alone exceeds remaining budget, try compressing
-        |
-        v
-  [ Result Formatting ]  (formatter.py)
-  - Plain text: file path header, line range, content block, score summary
-  - JSON: structured QueryResult array for programmatic consumption
-        |
-        v
-  [ Usage Event Recording ]  (Analytics.record)
-  - 'retrieved' events for every returned chunk
-  - Pattern recording for future prefetch learning
-```
+![Retrieval Pipeline](docs/assets/diagrams/retrieval-pipeline.png)
 
 ### Data Flow Diagram
 
-```
-                    ┌─────────────────────────────────────────────────────┐
-                    │              .mnemosyne/                             │
-                    │                                                      │
-   Disk Files  ───> │  mnemosyne.db  (SQLite WAL)                         │
-                    │  ├── files          (FileRecord)                     │
-                    │  ├── chunks         (Chunk + compressed)             │
-                    │  ├── chunks_fts     (FTS5 BM25 index)                │
-                    │  ├── sparse_embeddings  (JSON term weights)          │
-                    │  ├── summaries      (hierarchical summary tree)      │
-                    │  ├── usage_events   (retrieved/selected/used)        │
-                    │  ├── cache_state    (persisted ARC tier membership)  │
-                    │  ├── task_patterns  (prefetch query signatures)      │
-                    │  └── vocabulary     (TF-IDF IDF weights)             │
-                    │                                                      │
-                    │  bloom.bin   (Bloom filter — fast existence checks)  │
-                    │  config.toml (merged user + default config)          │
-                    │  audit.log   (append-only JSON-lines operation log)  │
-                    └─────────────────────────────────────────────────────┘
-                                          ^
-                                          |
-                         ┌────────────────┴────────────────┐
-                         |                                 |
-                    Ingestion                          Retrieval
-                    Pipeline                           Pipeline
-                         |                                 |
-                    python -m mnemosyne ingest        python -m mnemosyne query "..."
-                    (or LLM agent call)               (or LLM agent call)
-```
+![Data Flow](docs/assets/diagrams/data-flow.png)
 
 ### Module Dependency Graph
 
-```
-cli.py  ──> ingest.py  ──> chunkers/  ──> code_chunker.py   (Python AST)
-        │              ├── hasher.py          js_chunker.py    (JS/TS regex+brace)
-        │              ├── store.py           brace_chunker.py (shared base class)
-        │              ├── bloom.py           go_chunker.py    (Go, v1.0.0)
-        │              ├── embeddings/ ──>    csharp_chunker.py(C#, v1.0.0)
-        │              └── audit.py           rust_chunker.py  (Rust, v1.0.0)
-        │                   └──>              java_chunker.py  (Java/Kotlin, v1.0.0)
-        │                   tfidf_backend.py  text_chunker.py
-        │                                     generic_chunker.py
-        │
-        ├── retrieval.py ──> store.py
-        │               ├── ranking.py
-        │               ├── analytics.py
-        │               ├── prefetch.py
-        │               └── compress.py ──> density.py
-        │                               └── embeddings/tfidf_backend.py
-        │
-        ├── daemon.py (JSON-RPC Unix socket server, v1.0.0)
-        ├── cache.py  (ARCCache — standalone)
-        ├── tiers.py  (TierManager — ARC <-> Store bridge)
-        ├── delta.py  (DeltaTracker)
-        ├── formatter.py
-        ├── audit.py
-        ├── schema.py (DDL + migration + SQLite hardening)
-        ├── store.py  (all SQLite CRUD)
-        ├── models.py (dataclasses, estimate_tokens, staleness fields)
-        └── config.py (TOML loader, dot-access namespace)
-```
+![Module Dependency Graph](docs/assets/diagrams/module-dependency.png)
 
 ---
 
@@ -767,7 +581,7 @@ When the budget is tight (the common case in production), the cost model ensures
 
 Competitors that rank purely by relevance without token cost will consistently select large, moderately-relevant chunks over small, highly-relevant ones. Mnemosyne does not make this mistake.
 
-Implementation: `ranking.py` — `cost_model_score()` and `budget_cut()`.
+Implementation: `ranking.py` -- `cost_model_score()` and `budget_cut()`.
 
 ---
 
@@ -775,7 +589,7 @@ Implementation: `ranking.py` — `cost_model_score()` and `budget_cut()`.
 
 When a highly-relevant chunk is too large to fit in the remaining context budget, Mnemosyne does not discard it. Instead, it applies a four-stage compression pipeline to reduce the chunk's token count while preserving its semantic content.
 
-**Stage 1 — Structural Preservation**
+**Stage 1 -- Structural Preservation**
 
 Before anything is removed, a preservation set is computed. Lines that are structurally load-bearing or informationally irreplaceable are locked:
 
@@ -787,7 +601,7 @@ Before anything is removed, a preservation set is computed. Lines that are struc
 
 These lines will survive all subsequent stages unchanged, regardless of importance scores.
 
-**Stage 2 — Boilerplate Collapse**
+**Stage 2 -- Boilerplate Collapse**
 
 Repetitive patterns that convey structure but low semantic content are replaced with compact summary tokens:
 
@@ -796,25 +610,25 @@ Repetitive patterns that convey structure but low semantic content are replaced 
 - Consecutive logging/print call runs become: `# [4 log statements]`
 - Multiple consecutive blank lines collapse to a single blank line
 
-This alone reduces token count by 15–30% on typical Python codebases, with zero semantic loss for the purpose of understanding logic.
+This alone reduces token count by 15-30% on typical Python codebases, with zero semantic loss for the purpose of understanding logic.
 
-**Stage 3 — TF-IDF Importance Filtering**
+**Stage 3 -- TF-IDF Importance Filtering**
 
 Each remaining non-preserved line receives an importance score equal to the sum of IDF weights of its vocabulary terms. Lines where every word is a low-IDF stopword (common across the entire codebase) are removed first, until the configured `target_ratio` is met.
 
 Optionally, a per-query IDF override (`context_idf`) can be passed to make this stage query-aware: terms rare in the query context are weighted more heavily, enabling relevance-aware pruning where lines not germane to the current question are removed preferentially.
 
-**Stage 4 — Density Analysis**
+**Stage 4 -- Density Analysis**
 
 Near-duplicate lines (SequenceMatcher ratio > 0.85 against any of the previous 20 lines) are removed. This catches copy-pasted code, repeated error-handling boilerplate, and overly-similar docstring lines that add characters but no meaning.
 
-Typical results: **20–60% token reduction** with full preservation of function signatures, control flow, return types, assertions, and critical comments.
+Typical results: **20-60% token reduction** with full preservation of function signatures, control flow, return types, assertions, and critical comments.
 
-Implementation: `compress.py` — `Compressor`.
+Implementation: `compress.py` -- `Compressor`.
 
 ---
 
-### 3. ARC Cache — Not FIFO, Not LRU
+### 3. ARC Cache -- Not FIFO, Not LRU
 
 Every competing tool that implements any caching at all uses FIFO or LRU eviction. FIFO is obviously wrong (recently-added items are not necessarily recently-used). LRU is better but conflates recency with frequency: a chunk accessed 50 times last week but not at all today will be evicted in favor of a chunk accessed once this morning.
 
@@ -822,22 +636,22 @@ Mnemosyne implements the **Adaptive Replacement Cache (ARC)**, based on the 2003
 
 ARC maintains four ordered dictionaries:
 
-- **T1** — Recently-inserted items seen exactly once (recency).
-- **T2** — Items seen at least twice (frequency). Promoted from T1 on second access.
-- **B1** — Ghost keys evicted from T1 (no data, keys only).
-- **B2** — Ghost keys evicted from T2 (no data, keys only).
+- **T1** -- Recently-inserted items seen exactly once (recency).
+- **T2** -- Items seen at least twice (frequency). Promoted from T1 on second access.
+- **B1** -- Ghost keys evicted from T1 (no data, keys only).
+- **B2** -- Ghost keys evicted from T2 (no data, keys only).
 
-An adaptive parameter `p` controls the target size of T1 relative to T2. When a ghost hit occurs in B1 (meaning T1 was too small — we evicted something we needed again), `p` grows: more capacity is allocated to recency. When a ghost hit occurs in B2 (T2 was too small), `p` shrinks: more capacity is allocated to frequency.
+An adaptive parameter `p` controls the target size of T1 relative to T2. When a ghost hit occurs in B1 (meaning T1 was too small -- we evicted something we needed again), `p` grows: more capacity is allocated to recency. When a ghost hit occurs in B2 (T2 was too small), `p` shrinks: more capacity is allocated to frequency.
 
 The result is a cache that **self-tunes** to the actual access pattern of the workload. For a codebase where the developer is working in one area repeatedly (frequency-dominant), ARC performs like an LFU cache. For rapid exploration across many files (recency-dominant), it performs like an LRU cache. It adapts continuously without configuration.
 
 ARC cache state (which chunk IDs are in T1, T2, B1, B2) is persisted to SQLite between sessions via the `cache_state` table, so the adaptive parameter `p` is not lost on restart.
 
-Implementation: `cache.py` — `ARCCache`.
+Implementation: `cache.py` -- `ARCCache`.
 
 ---
 
-### 4. Hybrid Search — BM25 + TF-IDF + Usage + Pre-fetch
+### 4. Hybrid Search -- BM25 + TF-IDF + Usage + Pre-fetch
 
 A single search signal is fragile. BM25 (term frequency in the document) misses semantic similarity between synonymous terms. TF-IDF vector search misses exact keyword matches in rare but critical identifiers. Usage frequency alone degenerates into "always return what was used before." Pre-fetch alone causes stale patterns to persist.
 
@@ -869,7 +683,7 @@ RRF is robust to score scale differences between signals (because it operates on
 
 **Pre-fetch boosting**: Query signatures (normalized, sorted token sets hashed to a 16-character fingerprint) are matched against historical patterns. When a pattern has been seen at least `min_hits` times (default: 3), its associated chunks receive a maximum-priority boost in the fusion step. This allows the system to learn "whenever the developer asks about authentication, chunks A, B, and C are always relevant" without any explicit configuration.
 
-Implementation: `retrieval.py` — `RetrievalEngine`, `ranking.py` — `rrf_fuse`.
+Implementation: `retrieval.py` -- `RetrievalEngine`, `ranking.py` -- `rrf_fuse`.
 
 ---
 
@@ -883,9 +697,9 @@ Sending an entire 400-line file to an LLM when only 8 lines changed is a 98% tok
 
 **Diff impact analysis**: `get_affected_chunks()` parses the `@@` hunk headers of a unified diff to extract changed line ranges, then queries the store for chunks whose `[line_start, line_end]` intervals overlap. This enables surgical re-indexing: only the chunks that were actually affected by a change need to be re-ranked or re-fetched.
 
-In practice, delta injection reduces per-turn token consumption by **80–95%** for incremental coding sessions where the agent is iterating on a small set of files.
+In practice, delta injection reduces per-turn token consumption by **80-95%** for incremental coding sessions where the agent is iterating on a small set of files.
 
-Implementation: `delta.py` — `DeltaTracker`.
+Implementation: `delta.py` -- `DeltaTracker`.
 
 ---
 
@@ -895,7 +709,7 @@ Copy-paste is ubiquitous in real codebases. Error-handling boilerplate, configur
 
 Mnemosyne applies **content-addressed storage** at the chunk level:
 
-1. Each chunk's text is **whitespace-normalized** (CRLF -> LF, trailing whitespace stripped per line) before hashing. This ensures that the same logical content with different line-ending conventions produces the same hash — critical for cross-platform teams.
+1. Each chunk's text is **whitespace-normalized** (CRLF -> LF, trailing whitespace stripped per line) before hashing. This ensures that the same logical content with different line-ending conventions produces the same hash -- critical for cross-platform teams.
 
 2. A **SHA-256 digest** is computed over the normalized content. SHA-256 provides 2^256 possible values; collisions are not a practical concern for any codebase.
 
@@ -905,7 +719,7 @@ Mnemosyne applies **content-addressed storage** at the chunk level:
 
 During a typical incremental ingest of a 10,000-file codebase, the Bloom filter and mtime check together prevent database reads for over 95% of files, keeping incremental ingest fast even as the project grows.
 
-Implementation: `hasher.py` — `content_hash`, `file_hash`; `bloom.py` — `BloomFilter`; `store.py` — `get_chunk_by_hash`.
+Implementation: `hasher.py` -- `content_hash`, `file_hash`; `bloom.py` -- `BloomFilter`; `store.py` -- `get_chunk_by_hash`.
 
 ---
 
@@ -937,7 +751,777 @@ The pattern: on large repos, Mnemosyne saves 70%+ of tokens with no quality loss
 | Wall-clock time | 1.2s | 72s | **-98%** |
 | Context tokens | 4,131 | 18,500 | **-78%** |
 | Files navigated | 0 (auto-retrieved) | 6 (manual) | **-100%** |
-| Answer completeness | Equivalent | Equivalent | — |
+| Answer completeness | Equivalent | Equivalent | -- |
+
+### Ingestion Performance
+
+| Metric | Result |
+|---|---|
+| Files scanned | 89 |
+| Files indexed | 87 |
+| Chunks produced | 878 |
+| Total tokens indexed | 143,241 |
+| Wall-clock time | 0.52 seconds |
+| Throughput | ~167 files/second |
+| Storage footprint | ~600 KB (SQLite DB + Bloom filter) |
+| Storage efficiency | ~4.2 bytes per indexed token |
+
+Incremental re-ingest of an unchanged project (Bloom + mtime check): **< 50ms** regardless of project size.
+
+### Query Performance# Mnemosyne -- Reference Documentation
+
+Complete CLI reference, configuration options, architecture overview, and integration guides. For a quick overview, see [README.md](README.md).
+
+---
+
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [LLM Agent Integration](#llm-agent-integration)
+3. [CLI Reference](#cli-reference)
+4. [Configuration Reference](#configuration-reference)
+5. [Architecture Overview](#architecture-overview)
+6. [Key Innovations](#key-innovations)
+7. [Benchmarks](#benchmarks)
+8. [Technical Stack](#technical-stack)
+9. [File Structure](#file-structure)
+10. [Future Roadmap](#future-roadmap)
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11 or later
+- No other dependencies (optional: `onnxruntime` for future dense embeddings)
+
+### Installation
+
+```bash
+# Install from PyPI
+pip install mnemosyne-engine
+
+# Or install from source (for development)
+git clone https://github.com/castnettech/mnemosyne.git
+cd mnemosyne
+pip install -e .
+```
+
+### Initialize a Project
+
+```bash
+cd /your/project
+
+# Create .mnemosyne/ directory with default config and empty database
+python -m mnemosyne init
+```
+
+This creates:
+
+![Workspace Structure](docs/assets/diagrams/workspace-tree.png)
+
+### Index Your Project
+
+```bash
+# Index all supported files
+python -m mnemosyne ingest
+
+# Index specific files only
+python -m mnemosyne ingest src/auth.py src/models.py
+
+# Force full re-index, ignoring cached hashes
+python -m mnemosyne ingest --full
+
+# Preview what would be indexed without writing
+python -m mnemosyne ingest --dry-run
+```
+
+### Query for Relevant Context
+
+```bash
+# Retrieve context with default token budget (from config)
+python -m mnemosyne query "how does authentication work"
+
+# Set an explicit token budget
+python -m mnemosyne query "how does authentication work" --budget 6000
+
+# Get JSON output for programmatic consumption
+python -m mnemosyne query "database connection pooling" --format json
+
+# Include per-signal scores in output headers
+python -m mnemosyne query "rate limiting logic" --show-scores
+
+# Disable compression fallback
+python -m mnemosyne query "error handling patterns" --no-compress
+
+# Attach a session ID for usage tracking continuity
+python -m mnemosyne query "JWT validation" --session my-session-001
+```
+
+### Preview Compression
+
+```bash
+# See what the compression pipeline produces for a specific file
+python -m mnemosyne compress src/auth.py
+
+# Override target compression ratio
+python -m mnemosyne compress src/auth.py --ratio 0.3
+```
+
+Sample output:
+```
+File:            src/auth.py
+Original tokens: 842
+Compressed:      341
+Char ratio:      40.5%
+
+------------------------------------------------------------
+# [8 imports: os, sys, re, hashlib, datetime, jwt, models, config]
+
+class AuthManager:
+    """Manages user authentication, token issuance, and session validation."""
+
+    def __init__(self, config, store):
+# [6 assignments: config, store, secret, algorithm, expiry_hours, logger]
+
+    def authenticate(self, username: str, password: str) -> str | None:
+        """Verify credentials and return a signed JWT, or None on failure."""
+        ...
+    def validate_token(self, token: str) -> dict | None:
+        """Decode and verify a JWT. Returns the payload or None if invalid."""
+        ...
+        return payload
+```
+
+### View Statistics
+
+```bash
+# Summary statistics
+python -m mnemosyne stats
+
+# Detailed breakdown including chunk types, languages, cache state
+python -m mnemosyne stats --detailed
+```
+
+Sample output:
+```
+Project root:   /home/user/myproject
+Files indexed:  87
+Chunks:         878
+Total tokens:   143,241
+Usage events:   0
+
+Avg tokens/chunk: 163.2
+
+Chunk types:
+  block          : 142
+  class          :  34
+  function       : 521
+  imports        :  87
+  paragraph      :  94
+
+Languages:
+  python         : 61 files
+  typescript     : 14 files
+  go             : 12 files
+  markdown       :  8 files
+  csharp         :  6 files
+  javascript     :  4 files
+  rust           :  3 files
+  java           :  2 files
+```
+
+### Check for Changes
+
+```bash
+# Show what changed since the last ingest
+python -m mnemosyne delta
+
+# Limit to specific paths
+python -m mnemosyne delta src/auth.py src/models.py
+```
+
+### Manage the ARC Cache
+
+```bash
+# Show current cache tier distribution
+python -m mnemosyne cache show
+
+# Pre-warm the cache with the most-accessed chunks
+python -m mnemosyne cache warm
+
+# Clear all cache state
+python -m mnemosyne cache clear
+```
+
+### View the Audit Log
+
+```bash
+# Show the last 20 audit entries
+python -m mnemosyne audit
+
+# Show the last 100 entries
+python -m mnemosyne audit --last 100
+```
+
+### Garbage Collection
+
+```bash
+# Preview what would be removed
+python -m mnemosyne gc --dry-run
+
+# Run garbage collection
+python -m mnemosyne gc
+```
+
+---
+
+## LLM Agent Integration
+
+Mnemosyne is a standalone CLI tool. All consumers interact with Mnemosyne directly via the CLI or Python API.
+
+### Claude Code
+
+Add this near the top of your project's `CLAUDE.md`:
+
+```markdown
+## Context Retrieval -- MANDATORY
+
+Before answering any question about this codebase, ALWAYS query the Mnemosyne index first:
+
+    ! mnemosyne query "<your question>" --budget 8000
+
+Use the returned chunks as your primary context for answering. Only use Read, Grep,
+or Glob if the Mnemosyne chunks do not fully answer the question. Always cite which
+files and functions you found the answer in.
+```
+
+This was the highest-performing configuration in our benchmarks: Claude finds the right files on the first call instead of burning tokens on exploratory greps. On an 829-file codebase, this cut token consumption by 73%.
+
+### Cursor
+
+Add to `.cursorrules` in your project root:
+
+```
+When answering questions about this codebase, run this command first:
+mnemosyne query "<your question>" --budget 8000
+Use the output to identify relevant files before reading them.
+```
+
+### Other agents (Aider, GPT, custom)
+
+Any agent that can execute shell commands or read a system prompt can use Mnemosyne. The pattern is the same: query first, then read the specific files Mnemosyne identifies.
+
+### From scripts
+
+```bash
+CONTEXT=$(mnemosyne query "database connection pooling" --format json --budget 4000)
+```
+
+Or via `subprocess`:
+
+```python
+import subprocess, json
+result = subprocess.run(
+    ["mnemosyne", "query", "auth middleware", "--format", "json", "--budget", "4000"],
+    capture_output=True, text=True
+)
+chunks = json.loads(result.stdout)
+```
+
+### Programmatic Python API
+
+```python
+from mnemosyne.retrieval import RetrievalEngine
+from mnemosyne.config import Config
+
+config = Config.load()
+engine = RetrievalEngine(config)
+results = engine.query("authentication middleware", budget=6000)
+```
+
+The JSON-RPC daemon mode (`mnemosyne daemon start`) keeps indexes warm for low-latency repeated queries.
+
+### Keeping the Index Fresh
+
+For active development, run `ingest` as part of your save workflow or as a file-watcher hook:
+
+```bash
+# Simple: re-ingest changed files manually before querying
+python -m mnemosyne ingest src/auth.py
+
+# With entr (file watcher):
+find src/ -name "*.py" | entr python -m mnemosyne ingest /_
+
+# As a pre-commit hook:
+# .git/hooks/pre-commit
+python -m mnemosyne ingest $(git diff --cached --name-only)
+```
+
+---
+
+## CLI Reference
+
+### `mnemosyne init`
+
+Initialize a `.mnemosyne/` workspace in the current directory.
+
+Creates `.mnemosyne/config.toml` with all default values and `.mnemosyne/mnemosyne.db` with the full schema applied. Safe to run in an existing project -- exits immediately if `.mnemosyne/` already exists.
+
+**No flags.**
+
+---
+
+### `mnemosyne ingest [paths...] [--full] [--dry-run]`
+
+Index files into the knowledge base.
+
+| Argument | Description |
+|---|---|
+| `paths` | Optional list of specific file paths to index. Defaults to the entire project. |
+| `--full` | Force full re-index of every file, bypassing hash and mtime checks. |
+| `--dry-run` | Scan and report counts without writing any data to the database. |
+
+After ingestion, the TF-IDF vocabulary is rebuilt from the full corpus so that IDF values are meaningful. The Bloom filter is saved to `bloom.bin`. An audit entry is appended to `audit.log`.
+
+**Output example:**
+```
+Files scanned:  89
+Files indexed:  87
+Files skipped:  2
+Files failed:   0
+Chunks added:   878
+Chunks deduped: 12
+Elapsed:        0.52s
+```
+
+---
+
+### `mnemosyne query <text> [options]`
+
+Retrieve relevant context chunks for a query string.
+
+| Argument | Description |
+|---|---|
+| `text` | The query string. Required. |
+| `--budget N` | Maximum total tokens in the result set. Defaults to `retrieval.token_budget` in config (default: 8000). |
+| `--format plain\|json` | Output format. Default: `plain`. |
+| `--session SESSION_ID` | Session identifier for usage tracking. Auto-generated UUID fragment if omitted. |
+| `--no-compress` | Disable compression fallback when a chunk exceeds the remaining budget. |
+| `--show-scores` | Include per-signal scores (BM25, vector, usage, RRF) in plain-text output headers. |
+
+**Plain output format:**
+```
+Query: how does authentication work
+Budget: 6000 tokens | Session: a3f8b2c1
+Results: 6 chunks, 4,218 tokens used
+
+--- src/auth.py [lines 45-112] [function: AuthManager.authenticate] [tokens: 341] ---
+[compressed]
+...chunk content...
+
+--- src/models.py [lines 1-23] [imports] [tokens: 89] [STALE] ---
+...chunk content...
+```
+
+Results where the underlying file has changed since indexing are marked `[STALE]`. The JSON output includes `is_stale` and `stale_reason` fields for programmatic detection.
+
+**JSON output**: A structured array of `QueryResult` objects with `chunk`, `file_path`, `scores` (bm25, vector, usage, rrf), `is_stale`, `stale_reason`, `is_delta`, and `delta_text` fields.
+
+---
+
+### `mnemosyne stats [--detailed]`
+
+Display index and cache statistics.
+
+| Flag | Description |
+|---|---|
+| `--detailed` | Show per-chunk-type counts, per-language file counts, cache tier state, and pattern count. |
+
+---
+
+### `mnemosyne compress <file> [--ratio FLOAT]`
+
+Preview the four-stage compression pipeline for a single file.
+
+| Argument | Description |
+|---|---|
+| `file` | Path to the file to compress. |
+| `--ratio` | Override the target compression ratio (0.0-1.0). Default: from `compression.target_ratio` in config (default: 0.4). |
+
+Displays original token count, compressed token count, character ratio, and the compressed output.
+
+---
+
+### `mnemosyne cache [show|clear|warm]`
+
+Manage the ARC cache persisted in the database.
+
+| Action | Description |
+|---|---|
+| `show` | Display current T1/T2/B1/B2 tier counts (default). |
+| `clear` | Delete all cache state entries from the database. |
+| `warm` | Pre-load the most-accessed chunks into the in-memory ARC cache. |
+
+---
+
+### `mnemosyne delta [paths...]`
+
+Show file changes detected since the last index run.
+
+Compares on-disk mtime and content against stored `FileRecord` entries. Reports added, modified, and deleted files. For modified files, shows the number of added and removed lines.
+
+| Argument | Description |
+|---|---|
+| `paths` | Optional: limit change detection to specific file paths. |
+
+---
+
+### `mnemosyne audit [--last N]`
+
+Print recent entries from the append-only audit log.
+
+| Flag | Description |
+|---|---|
+| `--last N` | Number of most-recent entries to display. Default: 20. |
+
+Audit entries are JSON objects: `{"ts": "2026-03-21T10:00:00Z", "op": "ingest_complete", "files_indexed": 87, ...}`
+
+---
+
+### `mnemosyne gc [--dry-run]`
+
+Garbage collect orphaned chunks and stale file records.
+
+Removes chunks belonging to soft-deleted file records. Marks file records as deleted when the corresponding file no longer exists on disk. Prunes stale cache state and usage events. **Rebuilds the Bloom filter** from surviving entries so that stale entries no longer cause false "already indexed" skips on future ingests.
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | Report what would be removed without deleting anything. |
+
+---
+
+### `mnemosyne analytics [--session SESSION_ID] [--top-chunks N]`
+
+Display feedback precision metrics and top-used chunks from recorded usage events.
+
+| Flag | Description |
+|---|---|
+| `--session SESSION_ID` | Limit analysis to a specific session. |
+| `--top-chunks N` | Show the N most-accessed chunks. Default: 5. |
+
+Reports precision-at-k (ratio of used to retrieved chunks), total feedback event counts, and optionally the most frequently accessed chunks across sessions.
+
+---
+
+### `mnemosyne daemon <start|stop|status> [--foreground]`
+
+Manage the JSON-RPC background daemon. The daemon keeps SQLite, the TF-IDF inverted index, analytics, and the prefetcher warm across requests, eliminating cold-start overhead. Communicates over a Unix domain socket at `.mnemosyne/mnemosyne.sock`.
+
+| Action | Description |
+|---|---|
+| `start` | Start the daemon in the background (or foreground with `--foreground`). |
+| `stop` | Send SIGTERM to a running daemon. |
+| `status` | Check whether the daemon is running. |
+
+| Flag | Description |
+|---|---|
+| `--foreground` | Run the daemon in the foreground (blocks). |
+
+---
+
+### `mnemosyne health`
+
+Report index health with pass/fail checks for schema integrity, vocabulary state, and compression consistency. Suitable for monitoring dashboards (exit code 0 = healthy).
+
+---
+
+### `mnemosyne benchmark`
+
+Run the internal benchmark suite on your project. Reports precision-at-k, token reduction, and speed metrics.
+
+---
+
+## Configuration Reference
+
+Configuration is read from `.mnemosyne/config.toml` in the project root, deep-merged on top of built-in defaults. The file is created with defaults by `mnemosyne init` and is safe to edit.
+
+### `[general]`
+
+| Key | Default | Description |
+|---|---|---|
+| `project_root` | `"."` | Root directory to scan (relative to config file location). |
+| `ignore_patterns` | `[".git", "node_modules", "__pycache__", ...]` | fnmatch patterns for files and directories to skip. |
+| `max_file_size_kb` | `512` | Files larger than this are skipped during ingestion. |
+| `supported_extensions` | `[".py", ".js", ".ts", ".go", ".cs", ".rs", ".java", ".kt", ".md", ...]` | File extensions to index. |
+
+### `[chunking]`
+
+| Key | Default | Description |
+|---|---|---|
+| `max_chunk_tokens` | `300` | Maximum token count for a single chunk. Larger logical units are split. |
+| `min_chunk_tokens` | `20` | Minimum token count. Smaller candidates are merged with adjacent chunks. |
+| `overlap_lines` | `3` | Lines of overlap between adjacent chunks (for sliding-window chunkers). |
+| `code_granularity` | `"function"` | Granularity for code chunking: `"function"` extracts individual functions/methods; `"class"` groups methods with their class body. |
+
+### `[embedding]`
+
+| Key | Default | Description |
+|---|---|---|
+| `backend` | `"tfidf"` | Embedding backend. Currently `"tfidf"`; dense backend via `onnxruntime` planned. |
+| `tfidf_max_features` | `10000` | Maximum vocabulary size (top-N terms by document frequency). |
+| `tfidf_min_df` | `2` | Minimum document frequency for a term to enter the vocabulary. Filters noise terms that appear in only one file. |
+
+### `[compression]`
+
+| Key | Default | Description |
+|---|---|---|
+| `target_ratio` | `0.4` | Target character ratio after compression (0.4 = keep 40% of characters). |
+| `preserve_signatures` | `true` | Always preserve function/class signature lines. |
+| `preserve_docstrings` | `true` | Always preserve lines inside triple-quoted docstrings. |
+| `collapse_imports` | `true` | Collapse import blocks longer than 3 lines into a summary token. |
+| `collapse_boilerplate` | `true` | Collapse `self.x = y` assignment runs and logging call runs. |
+
+### `[retrieval]`
+
+| Key | Default | Description |
+|---|---|---|
+| `bm25_weight` | `0.4` | RRF weight for BM25 signal. |
+| `vector_weight` | `0.4` | RRF weight for TF-IDF vector signal. |
+| `usage_weight` | `0.2` | RRF weight for usage frequency signal. |
+| `max_results` | `20` | Maximum candidates to fetch from each search signal before fusion. |
+| `token_budget` | `8000` | Default token budget for `query` when `--budget` is not specified. |
+
+### `[cache]`
+
+| Key | Default | Description |
+|---|---|---|
+| `capacity` | `500` | Maximum live chunks in the ARC cache (T1 + T2). |
+| `ghost_capacity` | `1000` | Maximum ghost keys (B1 + B2) tracked for adaptive parameter tuning. |
+
+### `[analytics]`
+
+| Key | Default | Description |
+|---|---|---|
+| `decay_halflife_days` | `7` | Half-life for usage frequency decay. Reduce to focus on recent access; increase to weight historical patterns more heavily. |
+| `session_timeout_minutes` | `30` | Session inactivity timeout. Used for co-occurrence analysis grouping. |
+
+---
+
+## Architecture Overview
+
+Mnemosyne is organized into two primary pipelines -- ingestion and retrieval -- connected by a persistent SQLite store with WAL mode, FTS5 full-text search, and JSON1 for sparse embedding storage.
+
+### Ingestion Pipeline
+
+![Ingestion Pipeline](docs/assets/diagrams/ingestion-pipeline.png)
+
+### Retrieval Pipeline
+
+![Retrieval Pipeline](docs/assets/diagrams/retrieval-pipeline.png)
+
+### Data Flow Diagram
+
+![Data Flow](docs/assets/diagrams/data-flow.png)
+
+### Module Dependency Graph
+
+![Module Dependency Graph](docs/assets/diagrams/module-dependency.png)
+
+---
+
+## Key Innovations
+
+### 1. Cost-Model-Driven Retrieval
+
+Every database query optimizer has understood for decades that the cost of executing a plan matters as much as the estimated result quality. Mnemosyne applies the same principle to context assembly.
+
+After fusing signals from multiple retrieval sources, Mnemosyne re-ranks every candidate by its **value density** with structural awareness:
+
+```
+value_density = (rrf_score * code_boost * (1 - 0.5 * boilerplate)) / (1 + ln(1 + token_count))
+```
+
+Where `code_boost = 2.0` for chunks with extracted symbol names (functions, classes, named constants) and `1.0` for generic chunks. The logarithmic denominator dampens the size penalty so that large, highly-relevant source files remain competitive against small, marginally-relevant ones.
+
+HTML, CSS, and Markdown chunks receive an automatic `boilerplate = 0.85` penalty. Test directory files receive `boilerplate = 0.5`. These are general signals, not project-specific overrides.
+
+When the budget is tight (the common case in production), the cost model ensures the most informative content per token is always selected. This is analogous to a database query planner choosing an index scan over a full table scan: the optimal plan depends on both selectivity and execution cost.
+
+Competitors that rank purely by relevance without token cost will consistently select large, moderately-relevant chunks over small, highly-relevant ones. Mnemosyne does not make this mistake.
+
+Implementation: `ranking.py` -- `cost_model_score()` and `budget_cut()`.
+
+---
+
+### 2. Four-Stage Compression Pipeline
+
+When a highly-relevant chunk is too large to fit in the remaining context budget, Mnemosyne does not discard it. Instead, it applies a four-stage compression pipeline to reduce the chunk's token count while preserving its semantic content.
+
+**Stage 1 -- Structural Preservation**
+
+Before anything is removed, a preservation set is computed. Lines that are structurally load-bearing or informationally irreplaceable are locked:
+
+- Function and class signature lines (`def`, `async def`, `class`)
+- Return, raise, and yield statements
+- Assert statements (invariants)
+- All lines inside triple-quoted docstrings (when `preserve_docstrings = true`)
+- Lines containing `TODO`, `FIXME`, `HACK`, `NOTE`, or `XXX` comments
+
+These lines will survive all subsequent stages unchanged, regardless of importance scores.
+
+**Stage 2 -- Boilerplate Collapse**
+
+Repetitive patterns that convey structure but low semantic content are replaced with compact summary tokens:
+
+- Import blocks longer than 3 lines become: `# [12 imports: os, sys, re, pathlib, ...]`
+- Consecutive `self.x = x` assignment runs become: `# [8 assignments: store, config, bloom, ...]`
+- Consecutive logging/print call runs become: `# [4 log statements]`
+- Multiple consecutive blank lines collapse to a single blank line
+
+This alone reduces token count by 15-30% on typical Python codebases, with zero semantic loss for the purpose of understanding logic.
+
+**Stage 3 -- TF-IDF Importance Filtering**
+
+Each remaining non-preserved line receives an importance score equal to the sum of IDF weights of its vocabulary terms. Lines where every word is a low-IDF stopword (common across the entire codebase) are removed first, until the configured `target_ratio` is met.
+
+Optionally, a per-query IDF override (`context_idf`) can be passed to make this stage query-aware: terms rare in the query context are weighted more heavily, enabling relevance-aware pruning where lines not germane to the current question are removed preferentially.
+
+**Stage 4 -- Density Analysis**
+
+Near-duplicate lines (SequenceMatcher ratio > 0.85 against any of the previous 20 lines) are removed. This catches copy-pasted code, repeated error-handling boilerplate, and overly-similar docstring lines that add characters but no meaning.
+
+Typical results: **20-60% token reduction** with full preservation of function signatures, control flow, return types, assertions, and critical comments.
+
+Implementation: `compress.py` -- `Compressor`.
+
+---
+
+### 3. ARC Cache -- Not FIFO, Not LRU
+
+Every competing tool that implements any caching at all uses FIFO or LRU eviction. FIFO is obviously wrong (recently-added items are not necessarily recently-used). LRU is better but conflates recency with frequency: a chunk accessed 50 times last week but not at all today will be evicted in favor of a chunk accessed once this morning.
+
+Mnemosyne implements the **Adaptive Replacement Cache (ARC)**, based on the 2003 USENIX FAST paper by Megiddo and Modha.
+
+ARC maintains four ordered dictionaries:
+
+- **T1** -- Recently-inserted items seen exactly once (recency).
+- **T2** -- Items seen at least twice (frequency). Promoted from T1 on second access.
+- **B1** -- Ghost keys evicted from T1 (no data, keys only).
+- **B2** -- Ghost keys evicted from T2 (no data, keys only).
+
+An adaptive parameter `p` controls the target size of T1 relative to T2. When a ghost hit occurs in B1 (meaning T1 was too small -- we evicted something we needed again), `p` grows: more capacity is allocated to recency. When a ghost hit occurs in B2 (T2 was too small), `p` shrinks: more capacity is allocated to frequency.
+
+The result is a cache that **self-tunes** to the actual access pattern of the workload. For a codebase where the developer is working in one area repeatedly (frequency-dominant), ARC performs like an LFU cache. For rapid exploration across many files (recency-dominant), it performs like an LRU cache. It adapts continuously without configuration.
+
+ARC cache state (which chunk IDs are in T1, T2, B1, B2) is persisted to SQLite between sessions via the `cache_state` table, so the adaptive parameter `p` is not lost on restart.
+
+Implementation: `cache.py` -- `ARCCache`.
+
+---
+
+### 4. Hybrid Search -- BM25 + TF-IDF + Usage + Pre-fetch
+
+A single search signal is fragile. BM25 (term frequency in the document) misses semantic similarity between synonymous terms. TF-IDF vector search misses exact keyword matches in rare but critical identifiers. Usage frequency alone degenerates into "always return what was used before." Pre-fetch alone causes stale patterns to persist.
+
+Mnemosyne fuses **six signals** via Reciprocal Rank Fusion (RRF) plus post-fusion boosting:
+
+```
+rrf_score(id) = sum over sources: weight[src] / (k + rank[src](id))
+```
+
+Where `k = 60` (standard RRF smoothing constant) and weights are configurable. The default weighting is:
+
+| Signal | Weight | Source |
+|---|---|---|
+| BM25 (FTS5) | 0.4 | SQLite FTS5 with Porter stemmer, stopword filtering |
+| TF-IDF vector | 0.4 | Inverted index, camelCase-aware tokenization, stopword filtering |
+| Symbol name match | 0.6 | Direct match against chunk `symbol_name` + 3x post-RRF multiplier |
+| Usage frequency | 0.2 | Exponentially-decayed historical access |
+| Predictive pre-fetch | dynamic | Pattern-matched historical selections |
+| Filename match | post-RRF | 1.5x boost when query terms prefix-match filenames |
+| Import/namespace graph | post-filter | Injects connected files not found by keyword search |
+
+RRF is robust to score scale differences between signals (because it operates on ranks, not raw scores) and handles documents absent from some lists gracefully (penalty rank = list length + 1).
+
+**BM25 via FTS5**: SQLite's FTS5 extension provides production-quality BM25 ranking with Porter stemming, Unicode normalization, and a trigram tokenizer. The `chunks_fts` virtual table is maintained by database triggers on insert/update/delete to the `chunks` table, so the index is always consistent.
+
+**TF-IDF with code-aware tokenization**: The `TFIDFBackend` splits camelCase identifiers (e.g. `getUserById` -> `get`, `user`, `by`, `id`) and snake_case identifiers (e.g. `auth_token_expiry` -> `auth`, `token`, `expiry`). This dramatically improves recall for code search where identifiers carry the semantics.
+
+**Usage frequency with time decay**: Rather than a simple access count, Mnemosyne applies a half-life decay model: `score = 2^(-age_days / halflife)`. A chunk accessed yesterday contributes more than one accessed last month. The default halflife is 7 days. This prevents the system from ossifying around old patterns.
+
+**Pre-fetch boosting**: Query signatures (normalized, sorted token sets hashed to a 16-character fingerprint) are matched against historical patterns. When a pattern has been seen at least `min_hits` times (default: 3), its associated chunks receive a maximum-priority boost in the fusion step. This allows the system to learn "whenever the developer asks about authentication, chunks A, B, and C are always relevant" without any explicit configuration.
+
+Implementation: `retrieval.py` -- `RetrievalEngine`, `ranking.py` -- `rrf_fuse`.
+
+---
+
+### 5. Delta-Aware Context Injection
+
+Sending an entire 400-line file to an LLM when only 8 lines changed is a 98% token waste. Mnemosyne tracks per-session chunk delivery state and computes diffs at both the file level and the chunk level.
+
+**File-level delta detection**: `DeltaTracker.detect_changes()` walks the project directory, comparing on-disk mtime and content hashes against `FileRecord` entries in the database. It classifies every file as `added`, `modified`, or `deleted`. For modified files it computes a `difflib.unified_diff` between the indexed content and the current content.
+
+**Chunk-level delta tracking**: Within a session, `DeltaTracker.mark_retrieved()` records the exact content string delivered for each chunk ID. On subsequent queries, `get_delta_context()` returns a unified diff if the chunk has changed since it was last sent. The agent receives only what changed, not the whole chunk again.
+
+**Diff impact analysis**: `get_affected_chunks()` parses the `@@` hunk headers of a unified diff to extract changed line ranges, then queries the store for chunks whose `[line_start, line_end]` intervals overlap. This enables surgical re-indexing: only the chunks that were actually affected by a change need to be re-ranked or re-fetched.
+
+In practice, delta injection reduces per-turn token consumption by **80-95%** for incremental coding sessions where the agent is iterating on a small set of files.
+
+Implementation: `delta.py` -- `DeltaTracker`.
+
+---
+
+### 6. Content-Addressed Deduplication
+
+Copy-paste is ubiquitous in real codebases. Error-handling boilerplate, configuration loading patterns, and utility functions frequently appear in multiple files with minor or no variation. Without deduplication, the index balloons and identical content competes with itself in retrieval rankings.
+
+Mnemosyne applies **content-addressed storage** at the chunk level:
+
+1. Each chunk's text is **whitespace-normalized** (CRLF -> LF, trailing whitespace stripped per line) before hashing. This ensures that the same logical content with different line-ending conventions produces the same hash -- critical for cross-platform teams.
+
+2. A **SHA-256 digest** is computed over the normalized content. SHA-256 provides 2^256 possible values; collisions are not a practical concern for any codebase.
+
+3. Before inserting a new chunk, the store performs a `get_chunk_by_hash()` lookup. If the hash already exists in the index, the chunk is counted as deduplicated and skipped. The BM25 and TF-IDF indices are not polluted with redundant content.
+
+4. A **Bloom filter** provides an O(1) probabilistic pre-check for "is this file/hash definitely not indexed?" using the Kirsch-Mitzenmacher double-hashing trick (MD5 + SHA-1 pair). False negatives are impossible; false positives at the configured 0.1% rate are resolved by the subsequent hash lookup. This avoids a database read for the large majority of unchanged files during incremental re-index runs.
+
+During a typical incremental ingest of a 10,000-file codebase, the Bloom filter and mtime check together prevent database reads for over 95% of files, keeping incremental ingest fast even as the project grows.
+
+Implementation: `hasher.py` -- `content_hash`, `file_hash`; `bloom.py` -- `BloomFilter`; `store.py` -- `get_chunk_by_hash`.
+
+---
+
+## Benchmarks
+
+All measurements taken on a mid-range Linux workstation (AMD Ryzen 7, NVMe SSD) against real codebases.
+
+### Production Codebase (829 files, HCCValidatorAI)
+
+Tested with Claude Opus 4.6 (1M context):
+
+| | Production repo (829 files) | Open-source library (100 files) |
+|---|---|---|
+| **Token cost** | **12K** vs 45K (**73% savings**) | ~4K vs ~3.5K (parity on small repos) |
+| **Correct file found** | **100%** (20/20 queries) | **100%** (incl. zero-overlap query) |
+| **Answer quality** | Equivalent to full-read baseline | Equivalent to full-read baseline |
+| **Speed** | 18s vs 15s baseline | **8s** vs 10s baseline |
+| **Context preserved** | **98.8%** of 1M window remaining | ~95% remaining |
+| **Compression** | 111K tokens indexed, 8K delivered (**99% reduction**) | 40-70% chunk-level compression |
+| **Query latency** | <500ms median cold, <200ms daemon | <500ms median cold |
+
+The pattern: on large repos, Mnemosyne saves 70%+ of tokens with no quality loss. On small repos, it matches baseline speed and quality. It never makes the answer worse.
+
+### Complex Domain Query (MEAT Detection Pipeline)
+
+| Metric | Mnemosyne | Baseline | Improvement |
+|---|---|---|---|
+| Tool calls | 1 | 13 | **-92%** |
+| Wall-clock time | 1.2s | 72s | **-98%** |
+| Context tokens | 4,131 | 18,500 | **-78%** |
+| Files navigated | 0 (auto-retrieved) | 6 (manual) | **-100%** |
+| Answer completeness | Equivalent | Equivalent | -- |
 
 ### Ingestion Performance
 
@@ -969,21 +1553,21 @@ Incremental re-ingest of an unchanged project (Bloom + mtime check): **< 50ms** 
 
 | Content Type | Token Reduction | Semantic Preservation |
 |---|---|---|
-| Python class with logging | 55–65% | High — signatures, docstrings, returns intact |
-| Python module with imports | 40–50% | High — import block collapsed to summary |
-| Configuration-heavy module | 30–45% | High — assignments collapsed, comments preserved |
-| Function-dense utility module | 20–35% | High — all function signatures preserved |
-| Markdown documentation | 15–25% | Medium — paragraph splitting, no collapse heuristics |
+| Python class with logging | 55-65% | High -- signatures, docstrings, returns intact |
+| Python module with imports | 40-50% | High -- import block collapsed to summary |
+| Configuration-heavy module | 30-45% | High -- assignments collapsed, comments preserved |
+| Function-dense utility module | 20-35% | High -- all function signatures preserved |
+| Markdown documentation | 15-25% | Medium -- paragraph splitting, no collapse heuristics |
 
 ### Memory Footprint
 
 | Component | Memory Usage |
 |---|---|
-| SQLite connection + cache | ~2–5 MB |
-| TF-IDF inverted index (10K vocab, 878 chunks) | ~3–8 MB |
-| ARC cache (500 chunks) | ~5–15 MB (depends on chunk sizes) |
+| SQLite connection + cache | ~2-5 MB |
+| TF-IDF inverted index (10K vocab, 878 chunks) | ~3-8 MB |
+| ARC cache (500 chunks) | ~5-15 MB (depends on chunk sizes) |
 | Bloom filter (100K capacity) | ~180 KB |
-| **Total** | **~10–30 MB** |
+| **Total** | **~10-30 MB** |
 
 Mnemosyne is suitable for use in resource-constrained environments, embedded agent runtimes, and CI pipelines.
 
@@ -999,14 +1583,14 @@ Mnemosyne is built entirely on the **Python 3.11+ standard library**. No externa
 | Full-text search | FTS5 virtual table with Porter stemmer and unicode61 tokenizer |
 | Structured data | JSON1 SQLite extension for sparse embedding storage |
 | Content addressing | `hashlib.sha256` with whitespace normalization |
-| Bloom filter | Pure Python — Kirsch-Mitzenmacher double hashing (MD5 + SHA-1 pair) |
-| ARC cache | Pure Python — four `collections.OrderedDict` instances |
-| TF-IDF | Pure Python — `math`, `re`, `collections.Counter`, `defaultdict` |
+| Bloom filter | Pure Python -- Kirsch-Mitzenmacher double hashing (MD5 + SHA-1 pair) |
+| ARC cache | Pure Python -- four `collections.OrderedDict` instances |
+| TF-IDF | Pure Python -- `math`, `re`, `collections.Counter`, `defaultdict` |
 | BM25 | Delegated to SQLite FTS5 (production-grade C implementation) |
-| RRF fusion | Pure Python — rank-based fusion with configurable per-source weights |
-| AST chunking | `ast` module (stdlib) — full AST walk for Python files |
+| RRF fusion | Pure Python -- rank-based fusion with configurable per-source weights |
+| AST chunking | `ast` module (stdlib) -- full AST walk for Python files |
 | Brace-based chunking | Pure Python regex + brace tracking for Go, C#, Rust, Java, Kotlin |
-| JSON-RPC daemon | `socket` + `select` (stdlib) — Unix domain socket server |
+| JSON-RPC daemon | `socket` + `select` (stdlib) -- Unix domain socket server |
 | Diff computation | `difflib.unified_diff` (stdlib) |
 | Configuration | `tomllib` (stdlib since Python 3.11) with dot-access namespace wrapper |
 | Audit logging | Append-only JSON-lines file |
@@ -1014,10 +1598,10 @@ Mnemosyne is built entirely on the **Python 3.11+ standard library**. No externa
 
 The zero-dependency design is a deliberate constraint, not an oversight. It means:
 
-- **Installation is one command** — `pip install mnemosyne-engine` with no conflict resolution.
-- **Deployment is trivial** — copy the directory, run Python.
-- **Security surface is minimal** — no third-party supply chain to audit.
-- **Compatibility is guaranteed** — any Python 3.11+ environment works.
+- **Installation is one command** -- `pip install mnemosyne-engine` with no conflict resolution.
+- **Deployment is trivial** -- copy the directory, run Python.
+- **Security surface is minimal** -- no third-party supply chain to audit.
+- **Compatibility is guaranteed** -- any Python 3.11+ environment works.
 
 ---
 
@@ -1072,7 +1656,7 @@ The `mnemosyne/` package contains 35+ modules across 3 sub-packages.
 | Module | Description |
 |---|---|
 | `retrieval.py` | Hybrid retrieval orchestrator: BM25 + TF-IDF + usage + prefetch, RRF fusion, cost-model ranking, budget cutting. |
-| `ranking.py` | `rrf_fuse()`, `cost_model_score()`, `budget_cut()` — pure functions, no I/O. |
+| `ranking.py` | `rrf_fuse()`, `cost_model_score()`, `budget_cut()` -- pure functions, no I/O. |
 | `analytics.py` | Usage event recording and exponential decay scoring. Co-occurrence analysis. |
 | `prefetch.py` | Query signature computation and pattern-based pre-fetch recommendation. |
 

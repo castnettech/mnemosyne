@@ -35,7 +35,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             "*.lock",
             "*.min.js",
             "*.min.css",
-            # Secrets and credentials — NEVER index these
+            # Secrets and credentials -- NEVER index these
             ".env",
             ".env.*",
             "*.pem",
@@ -204,7 +204,7 @@ class Config:
             if isinstance(section_data, dict):
                 sec = _Section(section_data)
             else:
-                # Top-level scalar — wrap in a single-key section for uniformity.
+                # Top-level scalar -- wrap in a single-key section for uniformity.
                 sec = _Section({section_name: section_data})
             self._sections[section_name] = sec
             object.__setattr__(self, section_name, sec)
@@ -234,7 +234,7 @@ class Config:
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Build TOML content manually (tomllib is read-only; we write by hand).
-        # None values are omitted — TOML has no null representation.
+        # None values are omitted -- TOML has no null representation.
         lines: list[str] = []
         for section_name, sec in self._sections.items():
             lines.append(f"[{section_name}]")

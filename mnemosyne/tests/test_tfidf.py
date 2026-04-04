@@ -133,9 +133,9 @@ class TestTFIDF(unittest.TestCase):
             "common_term unique_term_gamma",
         ]
         backend.build_vocabulary(corpus)
-        # common_term appears in all 3 docs — should be in vocabulary
+        # common_term appears in all 3 docs -- should be in vocabulary
         self.assertIn("common_term", backend.vocabulary)
-        # unique terms appear once each — should be filtered out
+        # unique terms appear once each -- should be filtered out
         self.assertNotIn("unique_term_alpha", backend.vocabulary)
 
     def test_camelcase_tokenization_expands_parts(self):
@@ -216,7 +216,7 @@ class TestTFIDF(unittest.TestCase):
         b1 = TFIDFBackend(_default_config(), store=store)
         b1.build_vocabulary(CORPUS)
 
-        # Second backend loads from same store — should NOT be stale
+        # Second backend loads from same store -- should NOT be stale
         b2 = TFIDFBackend(_default_config(), store=store)
         self.assertFalse(b2._vocabulary_stale)
         self.assertGreater(len(b2.vocabulary), 0)

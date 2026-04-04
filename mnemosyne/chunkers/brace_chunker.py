@@ -237,7 +237,7 @@ class BraceChunker:
             if match_end == -1:
                 match_end = len(source)
             # Extend through continuation lines (no blank-line gap) looking
-            # for the opening brace — allows multi-line signatures.
+            # for the opening brace -- allows multi-line signatures.
             search_end = match_end
             while search_end < len(source):
                 nl = source.find("\n", search_end + 1)
@@ -426,11 +426,11 @@ class BraceChunker:
                     break
 
             if not children:
-                # No nesting — emit the declaration as-is.
+                # No nesting -- emit the declaration as-is.
                 result.append(parent)
                 i += 1
             else:
-                # Parent contains children — emit a header chunk for the
+                # Parent contains children -- emit a header chunk for the
                 # parent (from parent start to just before the first child)
                 # so the parent's symbol_name and chunk_type are preserved.
                 flattened_children = BraceChunker._flatten_decls(children)

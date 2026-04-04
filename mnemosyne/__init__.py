@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-Mnemosyne — LLM Context Compression and Retrieval Engine.
+Mnemosyne -- LLM Context Compression and Retrieval Engine.
 
 A foundation layer for intelligent codebase indexing, chunking, embedding,
-compression, and retrieval — built entirely on the Python standard library.
+compression, and retrieval -- built entirely on the Python standard library.
 """
 
-__version__ = "1.0.2"
+__version__ = "1.0.5"
 __package_name__ = "mnemosyne"
 
 __all__ = ["__version__", "__package_name__"]

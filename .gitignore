@@ -1,4 +1,4 @@
-# ── Mnemosyne data (user-specific, never committed) ──
+# -- Mnemosyne data (user-specific, never committed) --
 .mnemosyne/
 bloom.bin
 *.db
@@ -6,7 +6,7 @@ bloom.bin
 *.db-shm
 mnemosyne.lock
 
-# ── Python ──
+# -- Python --
 __pycache__/
 *.pyc
 *.pyo
@@ -15,23 +15,23 @@ dist/
 build/
 .eggs/
 
-# ── Virtual environments ──
+# -- Virtual environments --
 .venv/
 venv/
 env/
 
-# ── Testing ──
+# -- Testing --
 .pytest_cache/
 .coverage
 htmlcov/
 
-# ── IDE ──
+# -- IDE --
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# ── Secrets / credentials ──
+# -- Secrets / credentials --
 .env
 *.pem
 *.key
@@ -41,11 +41,11 @@ credentials*
 id_rsa*
 id_ed25519*
 
-# ── OS artifacts ──
+# -- OS artifacts --
 .DS_Store
 Thumbs.db
 
-# ── Claude Code workspace ──
+# -- Claude Code workspace --
 .claude/
 CLAUDE.md
 
@@ -55,5 +55,5 @@ docs/
 !docs/assets/
 !docs/assets/mnemosyne.png
 
-# -- Holdback test data (never committed — validation-only) --
+# -- Holdback test data (never committed -- validation-only) --
 mnemosyne/tests/benchmark_questions/httpx_holdback.json

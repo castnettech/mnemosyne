@@ -64,7 +64,7 @@ def _insert_file_and_chunks(store, file_path, chunks_content, language="python")
 
 
 # ---------------------------------------------------------------------------
-# TestRanking — rrf_fuse
+# TestRanking -- rrf_fuse
 # ---------------------------------------------------------------------------
 
 
@@ -159,7 +159,7 @@ class TestRanking(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestRetrieval — end-to-end with a populated database
+# TestRetrieval -- end-to-end with a populated database
 # ---------------------------------------------------------------------------
 
 
@@ -282,7 +282,7 @@ class TestRetrieval(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestStaleness — staleness detection at query time
+# TestStaleness -- staleness detection at query time
 # ---------------------------------------------------------------------------
 
 
@@ -387,7 +387,7 @@ class TestStaleness(unittest.TestCase):
                 ("auth.py", "def authenticate_user(token):\n    return verify(token)\n"),
                 ("db.py", "def get_connection(host, port):\n    return connect(host)\n"),
             ])
-            # Modify auth.py on disk — force a distinctly different mtime.
+            # Modify auth.py on disk -- force a distinctly different mtime.
             # Filesystem mtime resolution can be coarse (1s on some FS), so
             # we explicitly set a future timestamp to guarantee detection.
             auth_path = abs_paths["auth.py"]
@@ -433,7 +433,7 @@ class TestStaleness(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestInjectionHeuristics — Milestone 1.3 precision tuning
+# TestInjectionHeuristics -- Milestone 1.3 precision tuning
 # ---------------------------------------------------------------------------
 
 
@@ -492,7 +492,7 @@ class TestInjectionHeuristics(unittest.TestCase):
     def test_filename_boost_rejects_short_prefix(self):
         """
         Query term 'test' (4 chars) should NOT boost a file named
-        'testing_utils.py' — the term is too short (< 5 chars) to qualify
+        'testing_utils.py' -- the term is too short (< 5 chars) to qualify
         for stem-prefix matching.
         """
         engine, store, cfg, file_map = self._make_engine([
@@ -510,7 +510,7 @@ class TestInjectionHeuristics(unittest.TestCase):
             for cid in cids:
                 fused.append((cid, 0.5, {"bm25": 0.5, "rrf": 0.5}))
 
-        # "test" is only 4 characters — should not boost testing_utils.py
+        # "test" is only 4 characters -- should not boost testing_utils.py
         result = engine._filename_boost(fused, "test the function")
 
         # No chunk should have been boosted (scores should remain 0.5)
@@ -543,7 +543,7 @@ class TestInjectionHeuristics(unittest.TestCase):
         fused = [(cid, 0.5, {"bm25": 0.5, "rrf": 0.5}) for cid in auth_cids]
 
         # Query mentions "scorer" which matches scorer.py, but scorer.py
-        # is not in the fused results — it should NOT be injected.
+        # is not in the fused results -- it should NOT be injected.
         result = engine._filename_boost(fused, "scorer function details")
 
         result_chunk_ids = {cid for cid, _, _ in result}
@@ -551,7 +551,7 @@ class TestInjectionHeuristics(unittest.TestCase):
         for cid in scorer_cids:
             self.assertNotIn(
                 cid, result_chunk_ids,
-                "scorer.py chunks should not be injected — file was not in fused results",
+                "scorer.py chunks should not be injected -- file was not in fused results",
             )
 
     # ------------------------------------------------------------------
@@ -654,13 +654,13 @@ class TestInjectionHeuristics(unittest.TestCase):
 
         result = engine._import_graph_boost(fused)
 
-        # utils.py is referenced only once — should NOT be injected
+        # utils.py is referenced only once -- should NOT be injected
         result_chunk_ids = {cid for cid, _, _ in result}
         utils_fid, utils_cids = file_map["utils.py"]
         for cid in utils_cids:
             self.assertNotIn(
                 cid, result_chunk_ids,
-                "utils.py (referenced once) should not be injected — below threshold",
+                "utils.py (referenced once) should not be injected -- below threshold",
             )
 
 

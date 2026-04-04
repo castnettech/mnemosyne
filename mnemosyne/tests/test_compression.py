@@ -134,7 +134,7 @@ class TestCompressor(unittest.TestCase):
         result = self.compressor.compress(chunk)
         compressed_len = len(result)
         ratio = compressed_len / max(1, original_len)
-        # Allow ratio up to 1.1 — compression may not always reduce very short text
+        # Allow ratio up to 1.1 -- compression may not always reduce very short text
         self.assertLessEqual(
             ratio, 1.1,
             f"Compression ratio {ratio:.3f} expected to be <= 1.1 "
@@ -210,7 +210,7 @@ def process():
         )
 
     # ------------------------------------------------------------------
-    # Milestone 2.1 — Compression safety net tests
+    # Milestone 2.1 -- Compression safety net tests
     # ------------------------------------------------------------------
 
     def test_control_flow_lines_preserved(self):
@@ -253,7 +253,7 @@ def handle(items):
         """Even with aggressive target_ratio, at most 70% of removable lines are pruned in Stage 3."""
         # Build a chunk with many distinct low-value lines that Stage 3 wants to remove.
         # Lines must be dissimilar enough that Stage 4 (density/dedup, similarity >0.85)
-        # does NOT also remove them — we are testing Stage 3's prune cap only.
+        # does NOT also remove them -- we are testing Stage 3's prune cap only.
         # Use unique variable names and different operations to stay below 0.85 similarity.
         words = [
             "alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
@@ -278,7 +278,7 @@ def handle(items):
         from mnemosyne.compress import Compressor
         from mnemosyne.embeddings.tfidf_backend import TFIDFBackend
         cfg = _default_config()
-        cfg.compression.target_ratio = 0.05  # extremely aggressive — wants nearly everything gone
+        cfg.compression.target_ratio = 0.05  # extremely aggressive -- wants nearly everything gone
         cfg.compression.max_prune_ratio = 0.7  # safety net: keep at least 30% of removable
 
         backend = TFIDFBackend(cfg)
@@ -303,7 +303,7 @@ def handle(items):
         )
 
     def test_strict_mode_skips_importance_filter(self):
-        """strict=True skips Stage 3 — more content preserved than non-strict."""
+        """strict=True skips Stage 3 -- more content preserved than non-strict."""
         # Enough content for TF-IDF to actually remove things
         filler_lines = [f"    val_{i} = process({i})\n" for i in range(20)]
         source = "def worker():\n" + "".join(filler_lines) + "    return val_0\n"

@@ -84,7 +84,7 @@ class BloomFilter:
 
     After adding *n* items the probability of a false positive is
     approximately *fp_rate* when *n <= capacity*.  False negatives are
-    impossible — if ``might_contain`` returns False the item was definitely
+    impossible -- if ``might_contain`` returns False the item was definitely
     never added.
 
     Args:
@@ -115,7 +115,7 @@ class BloomFilter:
         self.size_bits: int = _optimal_size(capacity, fp_rate)
         self.hash_count: int = _optimal_hash_count(self.size_bits, capacity)
 
-        # Allocate bit array — ceil(size_bits / 8) bytes, all zeros.
+        # Allocate bit array -- ceil(size_bits / 8) bytes, all zeros.
         byte_count = (self.size_bits + 7) // 8
         self._bits = bytearray(byte_count)
 
@@ -142,8 +142,8 @@ class BloomFilter:
         Test membership of *item*.
 
         Returns:
-            False  — *item* was **definitely** never added.
-            True   — *item* was **probably** added (false positives are possible
+            False  -- *item* was **definitely** never added.
+            True   -- *item* was **probably** added (false positives are possible
                      at rate ≈ *fp_rate* once the filter holds *capacity* items).
         """
         h1, h2 = _double_hash(item)
@@ -171,7 +171,7 @@ class BloomFilter:
         """
         Serialise the filter to *path* in a compact binary format.
 
-        The output file is self-describing — :meth:`load` does not need
+        The output file is self-describing -- :meth:`load` does not need
         the original constructor parameters.
 
         Args:

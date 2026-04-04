@@ -17,7 +17,7 @@ in its default configuration.
 
 - **Filesystem access:** Mnemosyne reads and writes files within the project
   root directory and the `.mnemosyne/` subdirectory. Path containment is
-  enforced via `os.path.realpath()` — symlinks are resolved before
+  enforced via `os.path.realpath()` -- symlinks are resolved before
   validation. Paths outside the project root are rejected.
 
 - **Daemon socket:** When running in daemon mode, communication occurs over

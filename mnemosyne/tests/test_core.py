@@ -290,7 +290,7 @@ class TestBloomFilter(unittest.TestCase):
     def test_not_added_might_contain_false(self):
         bf = self._make_bloom()
         bf.add("hello.py")
-        # "world.py" was never added — must not be a false negative for "hello.py"
+        # "world.py" was never added -- must not be a false negative for "hello.py"
         self.assertFalse(bf.might_contain("world.py"))
 
     def test_contains_syntax(self):
@@ -418,7 +418,7 @@ class TestSchema(unittest.TestCase):
             "SELECT file_id FROM files WHERE rel_path = 'test.py'"
         ).fetchone()["file_id"]
 
-        # Insert a chunk — the trigger auto-populates chunks_fts
+        # Insert a chunk -- the trigger auto-populates chunks_fts
         conn.execute(
             "INSERT INTO chunks (file_id, content_hash, chunk_type, line_start, line_end, "
             "token_count, content) VALUES (?, 'bbb', 'function', 1, 5, 10, ?)",

@@ -46,7 +46,7 @@ TOKENIZER_FILENAME = "tokenizer.json"
 MODEL_DIM = 384
 MAX_SEQ_LEN = 512
 
-# Expected SHA-256 hashes — set to None to skip verification until pinned.
+# Expected SHA-256 hashes -- set to None to skip verification until pinned.
 MODEL_SHA256: str | None = None
 TOKENIZER_SHA256: str | None = None
 
@@ -230,7 +230,7 @@ class DenseBackend:
         if self._session is not None:
             return
 
-        import onnxruntime  # lazy import — graceful if not installed
+        import onnxruntime  # lazy import -- graceful if not installed
 
         model_path = os.path.join(self._model_dir, "model_quantized.onnx")
         tokenizer_path = os.path.join(self._model_dir, "tokenizer.json")

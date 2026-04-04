@@ -5,12 +5,12 @@
 SQLite schema manager for Mnemosyne.
 
 Responsibilities:
-  - ``get_connection``  — open / configure a SQLite connection (WAL, pragmas)
-  - ``init_db``         — idempotently create all tables, indexes, triggers, FTS5
-  - ``migrate``         — apply incremental schema upgrades keyed on schema_version
+  - ``get_connection``  -- open / configure a SQLite connection (WAL, pragmas)
+  - ``init_db``         -- idempotently create all tables, indexes, triggers, FTS5
+  - ``migrate``         -- apply incremental schema upgrades keyed on schema_version
 
 Schema version history:
-  1  — initial schema (all tables defined here)
+  1  -- initial schema (all tables defined here)
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ CURRENT_SCHEMA_VERSION: Final[int] = 1
 
 _DDL_STATEMENTS: list[str] = [
     # ------------------------------------------------------------------
-    # files — one row per tracked source file
+    # files -- one row per tracked source file
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS files (
@@ -49,7 +49,7 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_files_is_deleted   ON files (is_deleted)",
 
     # ------------------------------------------------------------------
-    # chunks — content slices extracted from files
+    # chunks -- content slices extracted from files
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS chunks (
@@ -73,7 +73,7 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_chunks_symbol_name  ON chunks (symbol_name)",
 
     # ------------------------------------------------------------------
-    # chunks_fts — FTS5 virtual table mirroring chunks.content
+    # chunks_fts -- FTS5 virtual table mirroring chunks.content
     # ------------------------------------------------------------------
     """
     CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
@@ -109,7 +109,7 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
-    # embeddings — dense vector storage (blob of float32 packed bytes)
+    # embeddings -- dense vector storage (blob of float32 packed bytes)
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS embeddings (
@@ -121,7 +121,7 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
-    # sparse_embeddings — TF-IDF / BM25 term weights stored as JSON
+    # sparse_embeddings -- TF-IDF / BM25 term weights stored as JSON
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS sparse_embeddings (
@@ -132,7 +132,7 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
-    # vocabulary — global term statistics for IDF computation
+    # vocabulary -- global term statistics for IDF computation
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS vocabulary (
@@ -144,7 +144,7 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
-    # summaries — multi-scope summaries (chunk / file / directory / project)
+    # summaries -- multi-scope summaries (chunk / file / directory / project)
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS summaries (
@@ -163,7 +163,7 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_summaries_parent ON summaries (parent_id)",
 
     # ------------------------------------------------------------------
-    # usage_events — query/chunk interaction log
+    # usage_events -- query/chunk interaction log
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS usage_events (
@@ -181,7 +181,7 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_usage_timestamp   ON usage_events (timestamp)",
 
     # ------------------------------------------------------------------
-    # cache_state — persisted ARC cache tiers across sessions
+    # cache_state -- persisted ARC cache tiers across sessions
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS cache_state (
@@ -194,7 +194,7 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_cache_tier ON cache_state (tier)",
 
     # ------------------------------------------------------------------
-    # task_patterns — query-signature → chunk-id-list lookup
+    # task_patterns -- query-signature -> chunk-id-list lookup
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS task_patterns (
@@ -206,7 +206,7 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
-    # file_deltas — change history between indexed versions of a file
+    # file_deltas -- change history between indexed versions of a file
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS file_deltas (
@@ -223,7 +223,7 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_file_deltas_recorded_at ON file_deltas (recorded_at)",
 
     # ------------------------------------------------------------------
-    # index_metadata — key-value store for index configuration hashes
+    # index_metadata -- key-value store for index configuration hashes
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS index_metadata (
@@ -234,7 +234,7 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
-    # schema_version — single-row version tracker for migrations
+    # schema_version -- single-row version tracker for migrations
     # ------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS schema_version (
@@ -266,14 +266,14 @@ def get_connection(db_path: str | Path) -> sqlite3.Connection:
     Open a SQLite connection to *db_path* with recommended performance pragmas.
 
     Settings applied:
-    - ``PRAGMA journal_mode = WAL``     — concurrent readers, no read-lock on writes
-    - ``PRAGMA synchronous = NORMAL``   — safe compromise between fsync and speed
-    - ``PRAGMA busy_timeout = 5000``    — wait up to 5 s on lock contention
-    - ``PRAGMA cache_size = -65536``    — 64 MB page cache (negative = KiB)
-    - ``PRAGMA mmap_size = 268435456``  — 256 MB memory-mapped I/O
-    - ``PRAGMA foreign_keys = ON``      — enforce referential integrity
-    - ``PRAGMA temp_store = MEMORY``    — temp tables stay in RAM
-    - ``row_factory = sqlite3.Row``     — column-name access on result rows
+    - ``PRAGMA journal_mode = WAL``     -- concurrent readers, no read-lock on writes
+    - ``PRAGMA synchronous = NORMAL``   -- safe compromise between fsync and speed
+    - ``PRAGMA busy_timeout = 5000``    -- wait up to 5 s on lock contention
+    - ``PRAGMA cache_size = -65536``    -- 64 MB page cache (negative = KiB)
+    - ``PRAGMA mmap_size = 268435456``  -- 256 MB memory-mapped I/O
+    - ``PRAGMA foreign_keys = ON``      -- enforce referential integrity
+    - ``PRAGMA temp_store = MEMORY``    -- temp tables stay in RAM
+    - ``row_factory = sqlite3.Row``     -- column-name access on result rows
 
     Args:
         db_path: Filesystem path to the SQLite database file. Parent directories
@@ -305,7 +305,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     """
     Create all Mnemosyne tables, indexes, triggers, and FTS5 virtual tables.
 
-    This function is **idempotent** — it uses ``CREATE TABLE IF NOT EXISTS``
+    This function is **idempotent** -- it uses ``CREATE TABLE IF NOT EXISTS``
     and ``CREATE INDEX IF NOT EXISTS`` throughout, so it is safe to call on an
     already-initialised database.
 
@@ -356,7 +356,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     ).fetchone()
 
     if row is None:
-        # schema_version table exists but is empty — seed it.
+        # schema_version table exists but is empty -- seed it.
         cur.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))",
             (CURRENT_SCHEMA_VERSION,),
@@ -368,7 +368,7 @@ def migrate(conn: sqlite3.Connection) -> None:
 
     for from_ver, to_ver, stmts in sorted(_MIGRATIONS, key=lambda m: m[0]):
         if current_version < from_ver:
-            break  # Gap in migration chain — stop safely.
+            break  # Gap in migration chain -- stop safely.
         if current_version >= to_ver:
             continue  # Already applied.
 

@@ -9,17 +9,17 @@ Entry point: ``mnemosyne`` (configured in pyproject.toml / setup.py as
 
 Commands
 --------
-init      — Create ``.mnemosyne/`` and default config in the current directory.
-ingest    — Index files into the knowledge base.
-query     — Retrieve relevant context for a query string.
-stats     — Show index statistics and cache health.
-compress  — Preview compression of a single file.
-cache     — Manage the ARC cache (show / clear / warm).
-delta     — Show changes since the last index run.
-audit     — Print recent audit log entries.
-analytics — Show feedback precision metrics and top-used chunks.
-gc        — Garbage collect orphaned chunks and stale records.
-health    — Report index health with pass/fail indicators.
+init      -- Create ``.mnemosyne/`` and default config in the current directory.
+ingest    -- Index files into the knowledge base.
+query     -- Retrieve relevant context for a query string.
+stats     -- Show index statistics and cache health.
+compress  -- Preview compression of a single file.
+cache     -- Manage the ARC cache (show / clear / warm).
+delta     -- Show changes since the last index run.
+audit     -- Print recent audit log entries.
+analytics -- Show feedback precision metrics and top-used chunks.
+gc        -- Garbage collect orphaned chunks and stale records.
+health    -- Report index health with pass/fail indicators.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def _make_bloom(project_root: str):
         try:
             return BloomFilter.load(bloom_path)
         except Exception:
-            logger.warning("Could not load Bloom filter from %s — creating new", bloom_path)
+            logger.warning("Could not load Bloom filter from %s -- creating new", bloom_path)
     return BloomFilter()
 
 
@@ -429,7 +429,7 @@ def cmd_compress(args: argparse.Namespace) -> int:
     print(f"Original tokens: {orig_tokens:,}")
     print(f"Compressed:      {comp_tokens:,}")
     print(f"Char ratio:      {ratio:.2%}")
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(compressed)
     return 0
 
@@ -633,7 +633,7 @@ def cmd_analytics(args: argparse.Namespace) -> int:
                 if entry["symbol_name"]:
                     label += f":{entry['symbol_name']}"
                 label += f" (lines {entry['line_start']}-{entry['line_end']})"
-                print(f"  {i}. {label} — {entry['use_count']} uses")
+                print(f"  {i}. {label} -- {entry['use_count']} uses")
         elif top_chunks_n is not None:
             print("\nNo 'used' events recorded yet.")
 
@@ -969,7 +969,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build and return the argument parser for the ``mnemosyne`` CLI."""
     parser = argparse.ArgumentParser(
         prog="mnemosyne",
-        description="Mnemosyne — LLM Context Compression & Retrieval Engine",
+        description="Mnemosyne -- LLM Context Compression & Retrieval Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -1010,7 +1010,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--code-only", action="store_true",
         help="Skip documentation files (.md, .txt, .rst, .log, .csv, .tsv, .ini, .cfg, .conf)",
     )
-
     # query
     p_query = sub.add_parser("query", help="Retrieve relevant context for a query")
     p_query.add_argument("text", help="Query string")
@@ -1169,7 +1168,7 @@ def main() -> int:
         print("\nInterrupted.", file=sys.stderr)
         return 130
     except BrokenPipeError:
-        # stdout closed by a pager or head — not an error
+        # stdout closed by a pager or head -- not an error
         return 0
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)

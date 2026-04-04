@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-Repository layer for Mnemosyne — all SQLite CRUD lives here.
+Repository layer for Mnemosyne -- all SQLite CRUD lives here.
 
 ``Store`` is the single access point for persisting and querying all domain
 objects.  Every method accepts / returns the dataclasses defined in
@@ -12,7 +12,7 @@ Design notes:
 - All writes use explicit transactions (``with self.conn`` context manager).
 - JSON fields (term_weights, chunk_ids) are encoded / decoded transparently.
 - ``search_fts`` returns ``(chunk_id, rank)`` tuples; callers build QueryResult.
-- Heavy reads (``get_all_sparse_embeddings``) are intentionally lazy — call them
+- Heavy reads (``get_all_sparse_embeddings``) are intentionally lazy -- call them
   only when the full corpus is needed for IDF / BM25 recomputation.
 """
 
@@ -138,7 +138,7 @@ class Store:
 
         Uses ``INSERT OR REPLACE`` so an existing row with the same ``rel_path``
         is fully replaced (SQLite updates the rowid on replace, so dependent FK
-        rows that CASCADE on DELETE will be removed — callers should re-index
+        rows that CASCADE on DELETE will be removed -- callers should re-index
         chunks after an upsert when the content hash has changed).
 
         Returns:
@@ -365,7 +365,7 @@ class Store:
                 (query, limit),
             ).fetchall()
         except sqlite3.OperationalError:
-            # Malformed FTS5 query (e.g. unmatched quotes) — degrade gracefully.
+            # Malformed FTS5 query (e.g. unmatched quotes) -- degrade gracefully.
             return []
         return [(int(row[0]), float(row[1])) for row in rows]
 
@@ -399,7 +399,7 @@ class Store:
         """
         Return all stored sparse embeddings as ``(chunk_id, term_weights)`` pairs.
 
-        This is an expensive full-table scan — call only when recomputing the
+        This is an expensive full-table scan -- call only when recomputing the
         global IDF weights.
         """
         rows = self.conn.execute(
@@ -457,7 +457,7 @@ class Store:
         ``IDF = log((total_docs + 1) / (doc_freq + 1)) + 1``  (smoothed).
 
         Args:
-            term_freqs: Mapping of ``term → document_frequency``.
+            term_freqs: Mapping of ``term -> document_frequency``.
             total_docs: Total number of indexed documents (used for IDF).
         """
         import math
@@ -744,11 +744,11 @@ class Store:
     # ======================================================================
 
     def get_file_record_by_path(self, rel_path: str) -> FileRecord | None:
-        """Alias for :meth:`get_file` — look up a FileRecord by relative path."""
+        """Alias for :meth:`get_file` -- look up a FileRecord by relative path."""
         return self.get_file(rel_path)
 
     def get_file_record(self, file_id: int) -> FileRecord | None:
-        """Alias for :meth:`get_file_by_id` — look up a FileRecord by file_id."""
+        """Alias for :meth:`get_file_by_id` -- look up a FileRecord by file_id."""
         return self.get_file_by_id(file_id)
 
     def get_all_file_records(self, include_deleted: bool = True) -> list[FileRecord]:
@@ -767,7 +767,7 @@ class Store:
         self.mark_deleted(file_id)
 
     def save_chunk(self, chunk: Chunk) -> int:
-        """Alias for :meth:`insert_chunk` — insert a chunk and return its id."""
+        """Alias for :meth:`insert_chunk` -- insert a chunk and return its id."""
         return self.insert_chunk(chunk)
 
     def get_chunk_by_hash(self, content_hash: str) -> Chunk | None:

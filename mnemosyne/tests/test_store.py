@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-Tests for Store — the repository / CRUD layer (store.py).
+Tests for Store -- the repository / CRUD layer (store.py).
 
 All tests use an in-memory SQLite database (:memory:) to avoid filesystem I/O.
 """

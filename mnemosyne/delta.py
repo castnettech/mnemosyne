@@ -5,7 +5,7 @@
 File change detection and delta context for Mnemosyne.
 
 Provides:
-- ``DeltaTracker`` — scan for modified/added/deleted files and compute diffs
+- ``DeltaTracker`` -- scan for modified/added/deleted files and compute diffs
   between the current state on disk and what was previously indexed.
 
 Diff output uses Python's standard ``difflib.unified_diff`` so that deltas
@@ -53,11 +53,11 @@ class DeltaTracker:
         Returns:
             List of change dicts, each with keys:
 
-            * ``"file"``   — relative path from project_root.
-            * ``"status"`` — ``"modified"``, ``"added"``, or ``"deleted"``.
-            * ``"diff"``   — unified diff string for modified files; empty
+            * ``"file"``   -- relative path from project_root.
+            * ``"status"`` -- ``"modified"``, ``"added"``, or ``"deleted"``.
+            * ``"diff"``   -- unified diff string for modified files; empty
                              string for added/deleted.
-            * ``"file_id"`` — database file_id (or ``None`` for new files).
+            * ``"file_id"`` -- database file_id (or ``None`` for new files).
         """
         root = os.path.abspath(project_root)
         changes: list[dict] = []

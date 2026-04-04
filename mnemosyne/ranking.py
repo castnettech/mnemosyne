@@ -5,9 +5,9 @@
 Ranking utilities for the Mnemosyne retrieval pipeline.
 
 Provides:
-- ``rrf_fuse``         — Reciprocal Rank Fusion across multiple scored lists
-- ``cost_model_score`` — Value density: relevance per token
-- ``budget_cut``       — Greedy token-budget selection with optional compression
+- ``rrf_fuse``         -- Reciprocal Rank Fusion across multiple scored lists
+- ``cost_model_score`` -- Value density: relevance per token
+- ``budget_cut``       -- Greedy token-budget selection with optional compression
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ def budget_cut(
     if not candidates or store is None:
         return []
 
-    # Fetch chunks — preserve input order from _cost_model_rank which
+    # Fetch chunks -- preserve input order from _cost_model_rank which
     # already applied boilerplate penalties and structured-code boosts.
     # Assign positional density (higher = earlier in pre-ranked list).
     enriched: list[tuple[float, int, object, dict]] = []

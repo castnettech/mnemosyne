@@ -6,7 +6,7 @@ Hot/warm/cold tier manager for Mnemosyne.
 
 Wraps the ARC cache (hot tier) and the persistent Store (cold tier) behind a
 single ``get`` interface.  A "warm" tier is defined as chunks present in the
-database but not currently in the ARC cache — they are returned after being
+database but not currently in the ARC cache -- they are returned after being
 promoted into the cache on access.
 """
 
@@ -27,11 +27,11 @@ class TierManager:
 
     Tiers:
 
-    * **hot**  — live in the in-memory :class:`~mnemosyne.cache.ARCCache`.
-    * **warm** — on disk in the :class:`~mnemosyne.store.Store`, but recently
+    * **hot**  -- live in the in-memory :class:`~mnemosyne.cache.ARCCache`.
+    * **warm** -- on disk in the :class:`~mnemosyne.store.Store`, but recently
                  accessed (present in a ghost list or likely to be fetched
                  again soon).  Fetching a warm chunk promotes it to hot.
-    * **cold** — on disk, not recently accessed.  Fetching a cold chunk
+    * **cold** -- on disk, not recently accessed.  Fetching a cold chunk
                  promotes it to hot.
 
     In practice "warm" vs "cold" is determined by ghost list membership: if

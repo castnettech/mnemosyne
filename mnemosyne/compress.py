@@ -10,14 +10,14 @@ information most useful for LLM context injection.
 
 Stages
 ------
-1. **Mark preserved** — identify lines that must never be removed (signatures,
+1. **Mark preserved** -- identify lines that must never be removed (signatures,
    docstrings, return/raise/assert statements, annotated comments).
-2. **Collapse boilerplate** — replace repetitive or low-value patterns with
+2. **Collapse boilerplate** -- replace repetitive or low-value patterns with
    compact summaries (``# [N imports: ...]``, ``# [N log statements]``).
-3. **TF-IDF importance filter** — score non-preserved lines by the IDF weight
+3. **TF-IDF importance filter** -- score non-preserved lines by the IDF weight
    of their vocabulary terms and remove the lowest-scoring lines until the
    ``target_ratio`` is reached.
-4. **Density filter** — remove near-duplicate lines and normalise whitespace.
+4. **Density filter** -- remove near-duplicate lines and normalise whitespace.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ _ASSERT_RE = re.compile(r"^\s*assert\b")
 # Annotation comments: TODO, FIXME, HACK, NOTE, XXX
 _ANNOTATION_COMMENT_RE = re.compile(r"#\s*(TODO|FIXME|HACK|NOTE|XXX)\b", re.IGNORECASE)
 
-# Control flow lines — structurally load-bearing; removing them destroys semantics
+# Control flow lines -- structurally load-bearing; removing them destroys semantics
 _CONTROL_FLOW_RE = re.compile(
     r"^\s*(if\b|elif\b|else\s*:|for\b|while\b|try\s*:|except\b|finally\s*:|with\b|switch\b|case\b)"
 )
@@ -202,7 +202,7 @@ class Compressor:
                 continue
 
             # Control flow lines (if/elif/else, for/while, try/except/finally,
-            # switch/case, with) — structurally load-bearing
+            # switch/case, with) -- structurally load-bearing
             if _CONTROL_FLOW_RE.match(line):
                 preserved.add(i)
                 continue
@@ -222,10 +222,10 @@ class Compressor:
         Replace boilerplate patterns with compact single-line summaries.
 
         Patterns handled:
-        - **Import blocks** > 3 consecutive import lines → ``# [N imports: a, b, ...]``
-        - **Consecutive self.x = x assignments** → ``# [N assignments: x, y, ...]``
-        - **Logging/print calls** → accumulated count, then ``# [N log statements]``
-        - **Consecutive blank lines** > 1 → single blank line
+        - **Import blocks** > 3 consecutive import lines -> ``# [N imports: a, b, ...]``
+        - **Consecutive self.x = x assignments** -> ``# [N assignments: x, y, ...]``
+        - **Logging/print calls** -> accumulated count, then ``# [N log statements]``
+        - **Consecutive blank lines** > 1 -> single blank line
 
         Returns updated ``(lines, preserved)`` tuple.
         """

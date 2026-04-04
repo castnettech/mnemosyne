@@ -101,7 +101,7 @@ _KOTLIN_OBJECT = DeclPattern(
     name_group="name",
 )
 
-# import statements: import java.util.List; — statement-level, no block
+# import statements: import java.util.List; -- statement-level, no block
 _IMPORT = DeclPattern(
     pattern=re.compile(
         r"^[ \t]*(?P<name>import)\s+(?:static\s+)?[\w.*]+\s*;",
@@ -112,7 +112,7 @@ _IMPORT = DeclPattern(
     has_block=False,
 )
 
-# package declaration: package com.example.foo; — statement-level, no block
+# package declaration: package com.example.foo; -- statement-level, no block
 _PACKAGE = DeclPattern(
     pattern=re.compile(
         r"^[ \t]*(?P<name>package)\s+[\w.]+\s*;",

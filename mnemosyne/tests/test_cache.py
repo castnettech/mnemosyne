@@ -72,7 +72,7 @@ class TestARCCache(unittest.TestCase):
         # After put: should be in T1
         self.assertIn(1, self.cache.t1)
         self.assertNotIn(1, self.cache.t2)
-        # First get — promotes to T2
+        # First get -- promotes to T2
         self.cache.get(1)
         self.assertNotIn(1, self.cache.t1)
         self.assertIn(1, self.cache.t2)
@@ -132,7 +132,7 @@ class TestARCCache(unittest.TestCase):
         b1_id = next(iter(self.cache.b1))
         p_before = self.cache.p
 
-        # Re-insert the B1 ghost — should trigger B1 hit, increasing p
+        # Re-insert the B1 ghost -- should trigger B1 hit, increasing p
         self.cache.put(b1_id, _make_chunk(b1_id))
         self.assertGreaterEqual(self.cache.p, p_before)
 

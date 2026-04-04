@@ -44,7 +44,7 @@ _STOPWORDS: frozenset[str] = frozenset({
 
 # Words that are stopwords in English but carry structural meaning in code
 # identifiers (e.g. "get" in getUserById, "is" in isEnabled).  Used to relax
-# stopword filtering when splitting symbol names — the query side still uses
+# stopword filtering when splitting symbol names -- the query side still uses
 # the full _STOPWORDS set since queries are natural language.
 _CODE_KEEP: frozenset[str] = frozenset({
     "get", "set", "for", "is", "has", "not", "can", "use",
@@ -160,11 +160,11 @@ class RetrievalEngine:
         # 2. Vector search via TF-IDF (keyword-based)
         vector_results = self._vector_search(query_text)
 
-        # 2b. Symbol name search — match query terms against chunk symbol_name
+        # 2b. Symbol name search -- match query terms against chunk symbol_name
         symbol_results = self._symbol_search(query_text)
 
         # 2c. Dense semantic search (optional, requires onnxruntime)
-        # Search ALL chunks — dense bridges lexical gaps that BM25/TF-IDF miss
+        # Search ALL chunks -- dense bridges lexical gaps that BM25/TF-IDF miss
         dense_results = self._dense_search(query_text)
 
         # 3. Usage frequency scores
@@ -173,7 +173,7 @@ class RetrievalEngine:
         # 4. Pre-fetch boosting
         prefetch_ids = self._prefetch_check(query_text) if self.prefetcher else set()
 
-        # 5. RRF fusion — all signals combined
+        # 5. RRF fusion -- all signals combined
         # Strip chunk_type from symbol triples for RRF (expects 2-tuples)
         symbol_pairs = [(cid, score) for cid, score, _ in symbol_results] if symbol_results else []
         fused = self._rrf_fuse(
@@ -182,10 +182,10 @@ class RetrievalEngine:
             dense_results=dense_results,
         )
 
-        # 5a. Symbol match multiplier — stable baseline.
+        # 5a. Symbol match multiplier -- stable baseline.
         #     All symbol matches get the same 3x boost as before.
         #     PascalCase class-name mode adds a 4x boost for class-type
-        #     chunks only — this is the ONLY new behaviour.
+        #     chunks only -- this is the ONLY new behaviour.
         if symbol_results:
             symbol_info: dict[int, tuple[float, str]] = {}
             for cid, score, ctype in symbol_results:
@@ -194,7 +194,7 @@ class RetrievalEngine:
 
             # Detect class-name query terms -> class-name mode.
             # Triggers on PascalCase (e.g., "AsyncClient") or TitleCase
-            # (e.g., "Timeout", "Response") — both are class conventions.
+            # (e.g., "Timeout", "Response") -- both are class conventions.
             query_tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", query_text)
             class_name_mode = any(
                 t[0].isupper() and re.search(r"[a-z]", t) and (
@@ -253,7 +253,7 @@ class RetrievalEngine:
 
         results = self._budget_cut(ranked, budget, compressor)
 
-        # 7b. Staleness detection — annotate results whose source file
+        # 7b. Staleness detection -- annotate results whose source file
         #     has changed on disk since the last index run.
         self._annotate_staleness(results)
 
@@ -472,12 +472,12 @@ class RetrievalEngine:
             "usage": usage_list,
         }
 
-        # Dense semantic search — optional 6th signal
+        # Dense semantic search -- optional 6th signal
         if dense_results:
             score_lists["dense"] = dense_results
             weights["dense"] = getattr(cfg, "dense_weight", 0.3) or 0.3
 
-        # Symbol name matches — highest-confidence signal
+        # Symbol name matches -- highest-confidence signal
         if symbol_results:
             score_lists["symbol"] = symbol_results
             weights["symbol"] = cfg.bm25_weight * 1.5
@@ -501,7 +501,7 @@ class RetrievalEngine:
         Boost chunks from files whose name/path matches query terms.
 
         When a query contains a meaningful keyword that appears in a file's
-        basename — e.g. "score" matches ``scorer.js`` — all chunks from that
+        basename -- e.g. "score" matches ``scorer.js`` -- all chunks from that
         file receive a 1.5x RRF score multiplier.  Stopwords and short terms
         are filtered to prevent false positives.
 
@@ -509,7 +509,7 @@ class RetrievalEngine:
         filename component share a common prefix of >= 5 characters AND the
         prefix covers at least 60% of the shorter string.  Files not already
         in the fused results (i.e. missed by BM25 and TF-IDF) are never
-        injected — only existing results are boosted.
+        injected -- only existing results are boosted.
         """
         # Extract meaningful query terms: min 5 chars, not stopwords
         query_lower = query_text.lower()
@@ -526,7 +526,7 @@ class RetrievalEngine:
                 fused_file_ids.add(chunk.file_id)
 
         # Build a set of boosted file_ids using stem-prefix matching.
-        # Only consider files that are ALREADY in the fused results — a
+        # Only consider files that are ALREADY in the fused results -- a
         # filename substring match alone is insufficient evidence to inject
         # files that neither BM25 nor TF-IDF retrieved.
         boosted_file_ids: set[int] = set()
@@ -592,10 +592,10 @@ class RetrievalEngine:
 
         Scans three reference types (general, not codebase-specific):
 
-        1. **ES6 imports / CommonJS require** — static module references
-        2. **Runtime namespace access** — ``Namespace.Module`` patterns where
+        1. **ES6 imports / CommonJS require** -- static module references
+        2. **Runtime namespace access** -- ``Namespace.Module`` patterns where
            the property maps to an indexed file's basename
-        3. **Path references** — quoted strings matching indexed file paths
+        3. **Path references** -- quoted strings matching indexed file paths
            (catches shell scripts referencing HTML, config referencing scripts)
 
         Source files are prioritised over test files in the injection queue.
@@ -605,7 +605,7 @@ class RetrievalEngine:
         all_files = {f.file_id: f.rel_path for f in self.store.list_files(include_deleted=False)}
         path_to_id = {v: k for k, v in all_files.items()}
 
-        # Basename → file_id for namespace resolution
+        # Basename -> file_id for namespace resolution
         basename_to_id: dict[str, int] = {}
         for fid, path in all_files.items():
             name = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
@@ -660,7 +660,7 @@ class RetrievalEngine:
                         if target_fid != fid:
                             connected_file_ids.add(target_fid)
 
-                # Path references (catches serve.sh → index.html, etc.)
+                # Path references (catches serve.sh -> index.html, etc.)
                 for m in _path_ref_re.finditer(chunk.content):
                     ref = m.group(1)
                     fname = ref.rsplit("/", 1)[-1]
@@ -689,7 +689,7 @@ class RetrievalEngine:
         ref_counts: dict[int, int] = {}
         for fid_c in connected_file_ids:
             ref_counts[fid_c] = ref_counts.get(fid_c, 0)
-        # Recount from the scanning loop above — track per-file hit count
+        # Recount from the scanning loop above -- track per-file hit count
         for fid_fused in fused_file_ids:
             for chunk in self.store.get_chunks_for_file(fid_fused):
                 for m in _namespace_re.finditer(chunk.content):
@@ -886,7 +886,7 @@ class RetrievalEngine:
                 if ext in ("html", "css", "md", "txt"):
                     bp_ratio = max(bp_ratio, 0.85)
 
-            # Penalize test files — they exercise production code and have
+            # Penalize test files -- they exercise production code and have
             # broad vocabulary overlap, but are secondary to source files
             # for most queries.  General signal, not project-specific.
             if rel_path.startswith("tests/") or rel_path.startswith("test/"):

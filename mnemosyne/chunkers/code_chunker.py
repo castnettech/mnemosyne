@@ -10,7 +10,7 @@ class are also extracted as child chunks so that granular retrieval is possible.
 
 For non-Python languages a set of language-specific regex patterns is used to
 find function/class/statement boundaries.  This is intentionally conservative
-— it is better to produce a slightly larger chunk than to split mid-construct.
+-- it is better to produce a slightly larger chunk than to split mid-construct.
 """
 
 from __future__ import annotations
@@ -334,7 +334,7 @@ class CodeChunker:
             return self._split_at_midpoint(cand, lines)
 
         result: list[ChunkCandidate] = []
-        # Boundaries: class header → each method → remainder after last method
+        # Boundaries: class header -> each method -> remainder after last method
         boundaries = [0] + method_starts + [len(lines)]
         current_lines: list[str] = []
         current_start_offset = 0  # offset into cand.content lines
@@ -438,7 +438,7 @@ class CodeChunker:
         For each pattern match, we treat that line as the start of a new chunk.
         Lines between two boundary markers form a single chunk.  If no patterns
         are defined for *language*, the source is split purely by the token
-        budget (sliding window with no overlap — use GenericChunker for overlap).
+        budget (sliding window with no overlap -- use GenericChunker for overlap).
         """
         patterns = _BOUNDARY_PATTERNS.get(language, [])
         lines = source.splitlines(keepends=True)

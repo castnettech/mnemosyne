@@ -35,7 +35,7 @@ class VectorStore:
     All vectors are sparse dicts ``{term: weight}`` as produced by
     :meth:`~mnemosyne.embeddings.tfidf_backend.TFIDFBackend.embed`.
     Cosine similarity is computed inline without needing the embedding backend
-    — the backend is only needed to produce the query vector before calling
+    -- the backend is only needed to produce the query vector before calling
     :meth:`search`.
     """
 
@@ -107,7 +107,7 @@ class VectorStore:
         scores: list[tuple[int, float]] = []
 
         for chunk_id, doc_vec in self._vectors.items():
-            # Dot product over shared terms only — O(|query|) per doc when
+            # Dot product over shared terms only -- O(|query|) per doc when
             # query is much smaller than the vocabulary.
             common = set(query_vector.keys()) & set(doc_vec.keys())
             if not common:

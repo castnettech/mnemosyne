@@ -13,7 +13,7 @@ Design notes
   long documents while still rewarding repeated occurrence within a chunk.
 - **Smoothed IDF**: ``log((N+1) / (df+1)) + 1`` avoids division-by-zero and
   gives non-zero weight to terms that appear in every document.
-- **Inverted index**: built lazily and used for sub-linear query time — only
+- **Inverted index**: built lazily and used for sub-linear query time -- only
   terms actually present in the query are consulted.
 - **Identifier splitting**: camelCase and snake_case tokens are expanded into
   their component parts, giving better recall for code search.
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 # Common English stopwords filtered from tokenisation to prevent prose-heavy
 # documents (HTML, Markdown) from inflating similarity scores with generic terms.
-# Must stay in sync with retrieval._STOPWORDS — both lists filter the same
+# Must stay in sync with retrieval._STOPWORDS -- both lists filter the same
 # natural-language noise.  Missing entries cause token leaks (e.g. "is" from
 # camelCase-split "isNegated" inflating scores for any is* identifier).
 _STOPWORDS: frozenset[str] = frozenset({
@@ -77,7 +77,7 @@ class TFIDFBackend:
     # Vocabulary payload key used when persisting to/from the store
     _VOCAB_KEY = "tfidf_vocabulary"
 
-    # Regex pattern used by tokenize() — kept as a class constant so the
+    # Regex pattern used by tokenize() -- kept as a class constant so the
     # hash can reference it deterministically.
     _TOKEN_PATTERN: str = r"[a-zA-Z_][a-zA-Z0-9_]{2,}"
     _MIN_SUBTOKEN_LEN: int = 2
@@ -117,7 +117,7 @@ class TFIDFBackend:
         Behaviour:
         - Extract alphanumeric + underscore tokens of at least 3 characters.
         - Convert to lowercase.
-        - Split camelCase tokens into their components (``getUserById`` →
+        - Split camelCase tokens into their components (``getUserById`` ->
           ``getuser``, ``get``, ``user``, ``by``, ``id``).
         - Split snake_case tokens as well (already covered by ``_`` separator).
         - Deduplicate expanded parts, but preserve original tokens too so that
@@ -332,7 +332,7 @@ class TFIDFBackend:
         Retrieve the top-*k* most relevant chunk IDs for *query*.
 
         Uses the inverted index to accumulate partial dot-product scores
-        efficiently — only terms present in the query are looked up.  The
+        efficiently -- only terms present in the query are looked up.  The
         query vector norm is constant across all candidates so it is omitted
         from the ranking comparison (relative order is preserved).
 

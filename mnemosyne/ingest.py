@@ -112,7 +112,7 @@ class Ingester:
 
         # On full re-index of the entire project, purge stale file records
         # (files that were previously indexed but are no longer in the scan
-        # list — e.g. because they were deleted or newly match an ignore
+        # list -- e.g. because they were deleted or newly match an ignore
         # pattern).  This prevents ghost chunks from polluting retrieval.
         if full and not paths and not dry_run:
             scanned_rel_paths = {
@@ -212,7 +212,7 @@ class Ingester:
             else:
                 real = os.path.realpath(os.path.join(self.root, p))
 
-            # Containment check — must be within project root
+            # Containment check -- must be within project root
             if real != self.root and not real.startswith(self.root + os.sep):
                 raise ValueError(f"Path '{p}' resolves outside project root")
 
@@ -359,7 +359,7 @@ class Ingester:
         if full:
             return True
 
-        # Quick Bloom filter check — if definitely not present, needs indexing
+        # Quick Bloom filter check -- if definitely not present, needs indexing
         if not self.bloom.might_contain(rel_path):
             return True
 
@@ -375,7 +375,7 @@ class Ingester:
             return False
 
         if mtime != file_record.last_modified:
-            # mtime changed — check hash to confirm content change
+            # mtime changed -- check hash to confirm content change
             try:
                 from mnemosyne.hasher import file_hash
                 current_hash = file_hash(abs_path)
@@ -386,7 +386,7 @@ class Ingester:
         return False
 
     # ------------------------------------------------------------------
-    # Enrichment — context prepended to embedding input only
+    # Enrichment -- context prepended to embedding input only
     # ------------------------------------------------------------------
 
     def _build_enriched_text(
@@ -531,7 +531,7 @@ class Ingester:
             except Exception:
                 pass
 
-            # Dense embedding (optional — requires onnxruntime + model)
+            # Dense embedding (optional -- requires onnxruntime + model)
             if self.dense is not None:
                 try:
                     vec_bytes = self.dense.embed_to_bytes(enriched)

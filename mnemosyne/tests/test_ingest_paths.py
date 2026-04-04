@@ -62,7 +62,7 @@ def _build_ingester(project_root: str) -> Ingester:
 
 
 # ---------------------------------------------------------------------------
-# Path containment — ValueError expected
+# Path containment -- ValueError expected
 # ---------------------------------------------------------------------------
 
 
@@ -100,7 +100,7 @@ class TestResolvePathsContainment(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Directory expansion — should work
+# Directory expansion -- should work
 # ---------------------------------------------------------------------------
 
 
@@ -171,7 +171,7 @@ class TestResolvePathsFiltering(unittest.TestCase):
             self.assertNotIn("bad.xyz", basenames)
 
     def test_resolve_paths_skips_nonexistent(self):
-        """Non-existent paths are silently skipped — no error."""
+        """Non-existent paths are silently skipped -- no error."""
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             ingester = _build_ingester(tmp)

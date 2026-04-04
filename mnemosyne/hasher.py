@@ -8,7 +8,7 @@ Provides normalised SHA-256 digests for both in-memory text and on-disk files,
 plus a fast binary-file detector based on null-byte scanning.
 
 Normalisation rules applied before hashing:
-  - CRLF → LF (Windows line endings)
+  - CRLF -> LF (Windows line endings)
   - Trailing whitespace stripped from each line
   - No trailing newline added / removed (content structure is preserved)
 
@@ -48,7 +48,7 @@ def content_hash(text: str) -> str:
     Return the SHA-256 hex digest of whitespace-normalised *text*.
 
     Args:
-        text: Any string — source code, prose, configuration, etc.
+        text: Any string -- source code, prose, configuration, etc.
 
     Returns:
         64-character lowercase hex string.
