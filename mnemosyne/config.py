@@ -130,6 +130,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "decay_halflife_days": 7,
         "session_timeout_minutes": 30,
     },
+    "database": {
+        "schema_sources": [],       # paths to DDL/JSON/YAML files or directories
+        "environment_tag": "",      # e.g. "prod", "dev", "staging"
+        "enable_schema_ingest": False,
+        "security_tier": 1,         # 1=DDL only, 2=+config snapshots, 3=+live introspect
+    },
 }
 
 

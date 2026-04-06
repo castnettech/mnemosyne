@@ -24,6 +24,7 @@ from mnemosyne.chunkers.go_chunker import GoChunker
 from mnemosyne.chunkers.csharp_chunker import CSharpChunker
 from mnemosyne.chunkers.rust_chunker import RustChunker
 from mnemosyne.chunkers.java_chunker import JavaChunker
+from mnemosyne.chunkers.schema_chunker import SchemaChunker
 
 if TYPE_CHECKING:
     from mnemosyne.config import Config
@@ -68,6 +69,9 @@ _CODE_LANGUAGES: frozenset[str] = frozenset({"python"})
 # Languages that get JS-aware structural chunking
 _JS_LANGUAGES: frozenset[str] = frozenset({"javascript", "typescript"})
 
+# Languages that get DDL-aware structural chunking
+_SCHEMA_LANGUAGES: frozenset[str] = frozenset({"sql", "sql_schema"})
+
 # Languages that get brace-based structural chunking
 _GO_LANGUAGES: frozenset[str] = frozenset({"go"})
 _CSHARP_LANGUAGES: frozenset[str] = frozenset({"csharp"})
@@ -100,7 +104,7 @@ def detect_language(file_path: str) -> str:
 def get_chunker(
     language: str,
     config: "Config",
-) -> CodeChunker | TextChunker | GenericChunker | JSChunker | GoChunker | CSharpChunker | RustChunker | JavaChunker:
+) -> CodeChunker | TextChunker | GenericChunker | JSChunker | GoChunker | CSharpChunker | RustChunker | JavaChunker | SchemaChunker:
     """
     Return an appropriately configured chunker for *language*.
 
@@ -111,6 +115,7 @@ def get_chunker(
     - ``"csharp"``                -> :class:`CSharpChunker` (regex+brace)
     - ``"rust"``                  -> :class:`RustChunker` (regex+brace)
     - ``"java"``/``"kotlin"``     -> :class:`JavaChunker` (regex+brace)
+    - ``"sql"``/``"sql_schema"``  -> :class:`SchemaChunker` (DDL-aware)
     - ``"markdown"``/``"text"``   -> :class:`TextChunker` (heading/paragraph-aware)
     - everything else             -> :class:`GenericChunker` (sliding-window fallback)
 
@@ -121,6 +126,8 @@ def get_chunker(
     Returns:
         A chunker instance ready to call ``.chunk(source, language)``.
     """
+    if language in _SCHEMA_LANGUAGES:
+        return SchemaChunker(config)
     if language in _CODE_LANGUAGES:
         return CodeChunker(config)
     if language in _JS_LANGUAGES:
@@ -146,6 +153,7 @@ __all__ = [
     "CSharpChunker",
     "RustChunker",
     "JavaChunker",
+    "SchemaChunker",
     "TextChunker",
     "GenericChunker",
     "detect_language",
