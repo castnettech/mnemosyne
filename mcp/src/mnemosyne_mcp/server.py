@@ -191,6 +191,66 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="schema_ingest",
+            description=(
+                "Ingest database schema into the Mnemosyne index. Accepts DDL files, "
+                "JSON schema snapshots, or SQLite database paths. Schema chunks flow "
+                "through the same retrieval pipeline as code, enabling queries that "
+                "correlate code behavior with database structure and configuration."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to schema source: a .sql DDL file, .json schema snapshot, "
+                            "or .db/.sqlite SQLite database file."
+                        ),
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "Environment tag (e.g. prod, dev, staging). Default empty.",
+                        "default": "",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["auto", "ddl", "json", "yaml", "sqlite"],
+                        "description": "Source format. Default auto-detects from extension.",
+                        "default": "auto",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the project root. "
+                            "Defaults to MNEMOSYNE_PROJECT_ROOT env var or cwd."
+                        ),
+                    },
+                },
+                "required": ["source_path"],
+            },
+        ),
+        Tool(
+            name="schema_stats",
+            description=(
+                "Show statistics about ingested database schema sources: "
+                "source count, environments indexed, chunk counts by type."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the project root. "
+                            "Defaults to MNEMOSYNE_PROJECT_ROOT env var or cwd."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -203,6 +263,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await _handle_index(arguments)
         elif name == "stats":
             return await _handle_stats(arguments)
+        elif name == "schema_ingest":
+            return await _handle_schema_ingest(arguments)
+        elif name == "schema_stats":
+            return await _handle_schema_stats(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -338,6 +402,120 @@ async def _handle_stats(arguments: dict) -> list[TextContent]:
     lines.append("  Chunk types:")
     for ctype, count in sorted(type_counts.items(), key=lambda x: -x[1]):
         lines.append(f"    {ctype}: {count}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_schema_ingest(arguments: dict) -> list[TextContent]:
+    source_path = arguments.get("source_path", "").strip()
+    if not source_path:
+        return [TextContent(type="text", text="Error: source_path is required")]
+
+    environment = arguments.get("environment", "")
+    fmt = arguments.get("format", "auto")
+    project_root = _resolve_project_root(arguments.get("project_root"))
+
+    from mnemosyne.config import Config
+    from mnemosyne.schema import open_store
+    from mnemosyne.store import Store
+    from mnemosyne.embeddings import get_backend
+    from mnemosyne.bloom import BloomFilter
+    from mnemosyne.audit import AuditLog
+    from mnemosyne.schema_ingest import SchemaIngester
+
+    mnemosyne_dir = Path(project_root) / ".mnemosyne"
+    if not mnemosyne_dir.exists():
+        mnemosyne_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config(root=project_root)
+    conn = open_store(str(mnemosyne_dir))
+    store = Store(conn)
+    tfidf = get_backend(config, store)
+    bloom = BloomFilter()
+    audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
+
+    ingester = SchemaIngester(
+        project_root=project_root,
+        config=config,
+        store=store,
+        bloom=bloom,
+        tfidf=tfidf,
+        audit=audit,
+    )
+
+    loop = asyncio.get_event_loop()
+
+    if fmt == "sqlite" or source_path.endswith((".db", ".sqlite", ".sqlite3")):
+        stats = await loop.run_in_executor(
+            None,
+            lambda: ingester.introspect_sqlite(source_path, env_tag=environment),
+        )
+        lines = [
+            f"Schema ingested from SQLite: {source_path}",
+            f"  Tables found:   {stats.get('tables_found', 0)}",
+            f"  Chunks added:   {stats['chunks_added']}",
+            f"  Chunks deduped: {stats['chunks_deduped']}",
+            f"  Redactions:     {stats['redactions']}",
+        ]
+    else:
+        stats = await loop.run_in_executor(
+            None,
+            lambda: ingester.ingest_from_file(source_path, env_tag=environment, fmt=fmt),
+        )
+        lines = [
+            f"Schema ingested: {source_path}",
+            f"  Environment:    {environment or '(none)'}",
+            f"  Chunks added:   {stats['chunks_added']}",
+            f"  Chunks deduped: {stats['chunks_deduped']}",
+            f"  Redactions:     {stats['redactions']}",
+        ]
+
+    # Invalidate engine cache
+    resolved = str(Path(project_root).resolve())
+    _engine_cache.pop(resolved, None)
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_schema_stats(arguments: dict) -> list[TextContent]:
+    project_root = _resolve_project_root(arguments.get("project_root"))
+
+    from mnemosyne.config import Config
+    from mnemosyne.schema import open_store
+    from mnemosyne.store import Store
+    from mnemosyne.embeddings import get_backend
+    from mnemosyne.bloom import BloomFilter
+    from mnemosyne.audit import AuditLog
+    from mnemosyne.schema_ingest import SchemaIngester
+
+    mnemosyne_dir = Path(project_root) / ".mnemosyne"
+    config = Config(root=project_root)
+    conn = open_store(str(mnemosyne_dir))
+    store = Store(conn)
+    tfidf = get_backend(config, store)
+    bloom = BloomFilter()
+    audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
+
+    ingester = SchemaIngester(
+        project_root=project_root,
+        config=config,
+        store=store,
+        bloom=bloom,
+        tfidf=tfidf,
+        audit=audit,
+    )
+
+    stats = ingester.get_schema_stats()
+    lines = [
+        f"Schema Index: {project_root}",
+        f"  Sources:      {stats['schema_sources']}",
+        f"  Environments: {', '.join(stats['environments']) or '(none)'}",
+        f"  Total chunks: {stats['total_chunks']}",
+    ]
+    if stats["chunk_types"]:
+        lines.append("  Chunk types:")
+        for ctype, count in sorted(stats["chunk_types"].items()):
+            lines.append(f"    {ctype}: {count}")
 
     return [TextContent(type="text", text="\n".join(lines))]
 

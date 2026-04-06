@@ -253,6 +253,169 @@ class SchemaIngester:
 
         return self._ingest_content(raw_content, source_path, env_tag, fmt)
 
+    def introspect_sqlite(
+        self,
+        db_path: str,
+        env_tag: str = "",
+    ) -> dict[str, int]:
+        """Introspect a local SQLite database and ingest its schema.
+
+        Uses stdlib ``sqlite3`` PRAGMA queries to extract table definitions,
+        indexes, and foreign keys, then converts them to DDL text and ingests
+        through the standard pipeline.
+
+        Args:
+            db_path: Path to the SQLite database file.  Must be within the
+                     project root (security constraint).
+            env_tag: Environment label.
+
+        Returns:
+            Stats dict with ``chunks_added``, ``chunks_deduped``,
+            ``redactions``, ``tables_found``.
+
+        Raises:
+            ValueError: If the path is outside the project root or points to
+                        Mnemosyne's own database.
+        """
+        import sqlite3
+
+        abs_db = os.path.abspath(db_path)
+
+        # Security: path must be within project root
+        try:
+            common = os.path.commonpath([self.root, abs_db])
+            if common != self.root:
+                raise ValueError(
+                    f"Database path {abs_db} is outside project root {self.root}"
+                )
+        except ValueError as exc:
+            if "outside project root" in str(exc):
+                raise
+            raise ValueError(
+                f"Database path {abs_db} is outside project root {self.root}"
+            ) from exc
+
+        # Security: reject Mnemosyne's own database
+        mnemosyne_db = os.path.join(self.root, ".mnemosyne", "mnemosyne.db")
+        if os.path.abspath(abs_db) == os.path.abspath(mnemosyne_db):
+            raise ValueError("Cannot introspect Mnemosyne's own database")
+
+        if not os.path.isfile(abs_db):
+            raise FileNotFoundError(f"Database not found: {abs_db}")
+
+        # Connect read-only
+        conn = sqlite3.connect(f"file:{abs_db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+
+        try:
+            ddl_parts: list[str] = []
+            db_name = os.path.splitext(os.path.basename(abs_db))[0]
+            ddl_parts.append(f"-- SQLite database: {db_name}")
+            if env_tag:
+                ddl_parts.append(f"-- Environment: {env_tag}")
+            ddl_parts.append("")
+
+            tables_found = 0
+
+            # Get all user tables (skip sqlite_ internal tables)
+            tables = conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
+                "ORDER BY name"
+            ).fetchall()
+
+            for table in tables:
+                tname = table["name"]
+                create_sql = table["sql"]
+                tables_found += 1
+
+                if create_sql:
+                    ddl_parts.append(f"{create_sql};")
+                else:
+                    # Generate DDL from PRAGMA for tables without stored SQL
+                    cols = conn.execute(
+                        f"PRAGMA table_info({tname})"
+                    ).fetchall()
+                    col_defs = []
+                    for col in cols:
+                        cdef = f"    {col['name']} {col['type'] or 'TEXT'}"
+                        if col["notnull"]:
+                            cdef += " NOT NULL"
+                        if col["dflt_value"] is not None:
+                            cdef += f" DEFAULT {col['dflt_value']}"
+                        if col["pk"]:
+                            cdef += " PRIMARY KEY"
+                        col_defs.append(cdef)
+                    ddl_parts.append(f"CREATE TABLE {tname} (")
+                    ddl_parts.append(",\n".join(col_defs))
+                    ddl_parts.append(");")
+
+                # Foreign keys
+                fks = conn.execute(
+                    f"PRAGMA foreign_key_list({tname})"
+                ).fetchall()
+                for fk in fks:
+                    ddl_parts.append(
+                        f"-- FK: {tname}.{fk['from']} -> "
+                        f"{fk['table']}.{fk['to']}"
+                    )
+
+                # Indexes for this table
+                indexes = conn.execute(
+                    f"PRAGMA index_list({tname})"
+                ).fetchall()
+                for idx in indexes:
+                    idx_name = idx["name"]
+                    unique = "UNIQUE " if idx["unique"] else ""
+                    idx_cols = conn.execute(
+                        f"PRAGMA index_info({idx_name})"
+                    ).fetchall()
+                    col_names = ", ".join(c["name"] for c in idx_cols if c["name"])
+                    if col_names:
+                        ddl_parts.append(
+                            f"CREATE {unique}INDEX {idx_name} "
+                            f"ON {tname} ({col_names});"
+                        )
+
+                # Row count
+                try:
+                    row_count = conn.execute(
+                        f"SELECT COUNT(*) FROM [{tname}]"
+                    ).fetchone()[0]
+                    ddl_parts.append(f"-- Row count: {row_count}")
+                except Exception:
+                    pass
+
+                ddl_parts.append("")
+
+            # Views
+            views = conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type = 'view' ORDER BY name"
+            ).fetchall()
+            for view in views:
+                if view["sql"]:
+                    ddl_parts.append(f"{view['sql']};")
+                    ddl_parts.append("")
+
+        finally:
+            conn.close()
+
+        ddl_text = "\n".join(ddl_parts)
+        if tables_found == 0:
+            return {
+                "chunks_added": 0,
+                "chunks_deduped": 0,
+                "redactions": 0,
+                "tables_found": 0,
+            }
+
+        # Use the database filename as the source name
+        source_name = os.path.basename(db_path)
+        stats = self._ingest_content(ddl_text, source_name, env_tag, "ddl")
+        stats["tables_found"] = tables_found
+        return stats
+
     def ingest_from_config(self) -> dict[str, int]:
         """Ingest all schema sources defined in config.database section.
 

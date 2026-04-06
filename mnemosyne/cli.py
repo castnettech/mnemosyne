@@ -300,11 +300,20 @@ def cmd_schema_ingest(args: argparse.Namespace) -> int:
     )
 
     source = getattr(args, "source", None)
+    sqlite_db = getattr(args, "sqlite", None)
     env_tag = getattr(args, "env", "") or ""
     fmt = getattr(args, "format", "auto") or "auto"
 
     try:
-        if source:
+        if sqlite_db:
+            stats = ingester.introspect_sqlite(sqlite_db, env_tag=env_tag)
+            print(f"SQLite DB:      {sqlite_db}")
+            print(f"Environment:    {env_tag or '(none)'}")
+            print(f"Tables found:   {stats.get('tables_found', 0)}")
+            print(f"Chunks added:   {stats['chunks_added']}")
+            print(f"Chunks deduped: {stats['chunks_deduped']}")
+            print(f"Redactions:     {stats['redactions']}")
+        elif source:
             stats = ingester.ingest_from_file(source, env_tag=env_tag, fmt=fmt)
             print(f"Source:         {source}")
             print(f"Environment:    {env_tag or '(none)'}")
@@ -1218,6 +1227,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_schema.add_argument(
         "--format", choices=["auto", "ddl", "json", "yaml"], default="auto",
         help="Source format (default: auto-detect from extension)",
+    )
+    p_schema.add_argument(
+        "--sqlite", default=None, metavar="DB_PATH",
+        help="Introspect a local SQLite database file (must be within project root)",
     )
 
     # schema-stats
