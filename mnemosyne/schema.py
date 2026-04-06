@@ -19,7 +19,7 @@ import sqlite3
 from pathlib import Path
 from typing import Final
 
-CURRENT_SCHEMA_VERSION: Final[int] = 1
+CURRENT_SCHEMA_VERSION: Final[int] = 2
 
 # ---------------------------------------------------------------------------
 # DDL strings
@@ -41,12 +41,14 @@ _DDL_STATEMENTS: list[str] = [
         language      TEXT,
         last_modified REAL    NOT NULL DEFAULT 0.0,
         last_indexed  TEXT,
-        is_deleted    INTEGER NOT NULL DEFAULT 0  -- BOOL (0/1)
+        is_deleted    INTEGER NOT NULL DEFAULT 0,  -- BOOL (0/1)
+        source_type   TEXT    DEFAULT 'file'       -- 'file' | 'schema' | 'config_snapshot'
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_files_rel_path    ON files (rel_path)",
     "CREATE INDEX IF NOT EXISTS idx_files_content_hash ON files (content_hash)",
     "CREATE INDEX IF NOT EXISTS idx_files_is_deleted   ON files (is_deleted)",
+    "CREATE INDEX IF NOT EXISTS idx_files_source_type  ON files (source_type)",
 
     # ------------------------------------------------------------------
     # chunks -- content slices extracted from files
@@ -251,8 +253,10 @@ _DDL_STATEMENTS: list[str] = [
 # Migrations are applied in ascending from_version order.
 
 _MIGRATIONS: list[tuple[int, int, list[str]]] = [
-    # Example future migration:
-    # (1, 2, ["ALTER TABLE chunks ADD COLUMN extra_field TEXT"]),
+    (1, 2, [
+        "ALTER TABLE files ADD COLUMN source_type TEXT DEFAULT 'file'",
+        "CREATE INDEX IF NOT EXISTS idx_files_source_type ON files (source_type)",
+    ]),
 ]
 
 
