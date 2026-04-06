@@ -19,7 +19,7 @@ import sqlite3
 from pathlib import Path
 from typing import Final
 
-CURRENT_SCHEMA_VERSION: Final[int] = 2
+CURRENT_SCHEMA_VERSION: Final[int] = 3
 
 # ---------------------------------------------------------------------------
 # DDL strings
@@ -42,7 +42,10 @@ _DDL_STATEMENTS: list[str] = [
         last_modified REAL    NOT NULL DEFAULT 0.0,
         last_indexed  TEXT,
         is_deleted    INTEGER NOT NULL DEFAULT 0,  -- BOOL (0/1)
-        source_type   TEXT    DEFAULT 'file'       -- 'file' | 'schema' | 'config_snapshot'
+        source_type   TEXT    DEFAULT 'file',      -- 'file' | 'schema' | 'document' | 'config_snapshot'
+        extraction_method  TEXT,                    -- 'direct' | 'ocr_tesseract' | 'ocr_doctr'
+        extraction_quality TEXT,                    -- 'good' | 'poor' | 'failed'
+        page_count    INTEGER                      -- total pages for documents
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_files_rel_path    ON files (rel_path)",
@@ -66,7 +69,8 @@ _DDL_STATEMENTS: list[str] = [
         compressed        TEXT,
         compression_ratio REAL,
         symbol_name       TEXT,
-        parent_chunk_id   INTEGER REFERENCES chunks (chunk_id) ON DELETE SET NULL
+        parent_chunk_id   INTEGER REFERENCES chunks (chunk_id) ON DELETE SET NULL,
+        page_number       INTEGER                  -- 1-based page for documents
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_chunks_file_id      ON chunks (file_id)",
@@ -256,6 +260,12 @@ _MIGRATIONS: list[tuple[int, int, list[str]]] = [
     (1, 2, [
         "ALTER TABLE files ADD COLUMN source_type TEXT DEFAULT 'file'",
         "CREATE INDEX IF NOT EXISTS idx_files_source_type ON files (source_type)",
+    ]),
+    (2, 3, [
+        "ALTER TABLE files ADD COLUMN extraction_method TEXT",
+        "ALTER TABLE files ADD COLUMN extraction_quality TEXT",
+        "ALTER TABLE files ADD COLUMN page_count INTEGER",
+        "ALTER TABLE chunks ADD COLUMN page_number INTEGER",
     ]),
 ]
 

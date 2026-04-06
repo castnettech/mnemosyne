@@ -25,6 +25,7 @@ from mnemosyne.chunkers.csharp_chunker import CSharpChunker
 from mnemosyne.chunkers.rust_chunker import RustChunker
 from mnemosyne.chunkers.java_chunker import JavaChunker
 from mnemosyne.chunkers.schema_chunker import SchemaChunker
+from mnemosyne.chunkers.document_chunker import DocumentChunker
 
 if TYPE_CHECKING:
     from mnemosyne.config import Config
@@ -58,6 +59,19 @@ LANGUAGE_MAP: dict[str, str] = {
     ".sh": "shell",
     ".html": "html",
     ".css": "css",
+    # Document formats -- routed through extractors, chunked by DocumentChunker
+    ".pdf": "document",
+    ".docx": "document",
+    ".csv": "document",
+    ".tsv": "document",
+    # Additional plaintext formats
+    ".log": "text",
+    ".cfg": "text",
+    ".ini": "text",
+    ".conf": "text",
+    ".rst": "text",
+    ".xml": "markup",
+    ".svg": "markup",
 }
 
 # Languages that the TextChunker handles well
@@ -71,6 +85,9 @@ _JS_LANGUAGES: frozenset[str] = frozenset({"javascript", "typescript"})
 
 # Languages that get DDL-aware structural chunking
 _SCHEMA_LANGUAGES: frozenset[str] = frozenset({"sql", "sql_schema"})
+
+# Document formats -- routed through extractor + DocumentChunker
+_DOCUMENT_LANGUAGES: frozenset[str] = frozenset({"document"})
 
 # Languages that get brace-based structural chunking
 _GO_LANGUAGES: frozenset[str] = frozenset({"go"})
@@ -126,6 +143,8 @@ def get_chunker(
     Returns:
         A chunker instance ready to call ``.chunk(source, language)``.
     """
+    if language in _DOCUMENT_LANGUAGES:
+        return DocumentChunker(config)
     if language in _SCHEMA_LANGUAGES:
         return SchemaChunker(config)
     if language in _CODE_LANGUAGES:
@@ -154,6 +173,7 @@ __all__ = [
     "RustChunker",
     "JavaChunker",
     "SchemaChunker",
+    "DocumentChunker",
     "TextChunker",
     "GenericChunker",
     "detect_language",

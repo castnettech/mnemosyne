@@ -48,6 +48,10 @@ class FileRecord:
     last_modified: float
     last_indexed: str | None = None
     is_deleted: bool = False
+    source_type: str = "file"  # 'file' | 'schema' | 'document' | 'config_snapshot'
+    extraction_method: str | None = None  # 'direct' | 'ocr_tesseract' | 'ocr_doctr' | None
+    extraction_quality: str | None = None  # 'good' | 'poor' | 'failed' | None
+    page_count: int | None = None  # total pages for documents, None for code
 
 
 @dataclass
@@ -79,7 +83,7 @@ class Chunk:
     chunk_id: int | None
     file_id: int
     content_hash: str
-    chunk_type: str  # 'function' | 'class' | 'paragraph' | 'block' | 'imports' | 'generic'
+    chunk_type: str  # 'function' | 'class' | 'paragraph' | 'block' | 'imports' | 'generic' | 'table'
     line_start: int
     line_end: int
     token_count: int
@@ -88,6 +92,7 @@ class Chunk:
     compression_ratio: float | None = None
     symbol_name: str | None = None
     parent_chunk_id: int | None = None
+    page_number: int | None = None  # 1-based page for documents, None for code
 
 
 @dataclass

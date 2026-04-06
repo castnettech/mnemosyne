@@ -54,6 +54,8 @@ docs/
 !docs/benchmark_meat_detection_query.md
 !docs/assets/
 !docs/assets/mnemosyne.png
+!docs/assets/diagrams/
+!docs/assets/diagrams/*.png
 
 # -- Holdback test data (never committed -- validation-only) --
 mnemosyne/tests/benchmark_questions/httpx_holdback.json

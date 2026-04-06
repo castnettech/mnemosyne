@@ -436,15 +436,23 @@ class Ingester:
         """
         Read, chunk, dedup, store, and embed a single file.
 
+        Binary/document files are routed through the extractor pipeline
+        when an appropriate extractor is available.  Source code files
+        continue through the existing chunker pipeline.
+
         Returns:
             ``(chunks_added, chunks_deduped)`` counts.
         """
-        from mnemosyne.hasher import file_hash, is_binary
+        from mnemosyne.hasher import file_hash, is_binary, is_document
         from mnemosyne.chunkers import get_chunker, detect_language
 
-        # Skip binary files
-        if is_binary(abs_path):
-            return 0, 0
+        # Route document files through the extractor pipeline
+        if is_document(abs_path) or is_binary(abs_path):
+            return self._index_document(abs_path, rel_path)
+
+        # Gate: check extraction config
+        if not getattr(self.config, "extraction", None):
+            pass  # no extraction config = code-only mode
 
         try:
             with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -517,6 +525,7 @@ class Ingester:
                 compression_ratio=None,
                 symbol_name=cand.symbol_name,
                 parent_chunk_id=None,
+                page_number=getattr(cand, "page_number", None),
             )
 
             chunk_id = self.store.save_chunk(chunk)
@@ -548,6 +557,115 @@ class Ingester:
         # Also add the file path to the Bloom filter
         self.bloom.add(rel_path)
 
+        return chunks_added, chunks_deduped
+
+    def _index_document(self, abs_path: str, rel_path: str) -> tuple[int, int]:
+        """Extract text from a document file, chunk it, and index.
+
+        Routes the file through the extractor pipeline (PDF, DOCX, CSV,
+        plaintext) and then through the DocumentChunker.  Falls back
+        gracefully: if no extractor is available for this file type,
+        returns (0, 0) without error.
+
+        Returns:
+            ``(chunks_added, chunks_deduped)`` counts.
+        """
+        from mnemosyne.extractors import extract_file
+        from mnemosyne.hasher import file_hash_binary, content_hash as compute_content_hash
+        from mnemosyne.chunkers.document_chunker import DocumentChunker
+
+        # Attempt extraction
+        extracted = extract_file(abs_path, self.config)
+        if extracted is None or not extracted.pages:
+            return 0, 0
+
+        # Skip completely failed extractions
+        if extracted.extraction_quality == "failed" and not extracted.full_text.strip():
+            return 0, 0
+
+        mtime = os.path.getmtime(abs_path)
+        size = os.path.getsize(abs_path)
+        content_hash_val = file_hash_binary(abs_path)
+
+        # Upsert FileRecord with document metadata
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        file_record = FileRecord(
+            file_id=None,
+            rel_path=rel_path,
+            content_hash=content_hash_val,
+            size_bytes=size,
+            language="document",
+            last_modified=mtime,
+            last_indexed=now_iso,
+            is_deleted=False,
+            source_type="document",
+            extraction_method=extracted.extraction_method,
+            extraction_quality=extracted.extraction_quality,
+            page_count=extracted.page_count,
+        )
+        file_id = self.store.upsert_file(file_record)
+
+        # Delete old chunks for this file before re-chunking
+        self.store.delete_chunks_for_file(file_id)
+
+        # Chunk the extracted content
+        doc_chunker = DocumentChunker(self.config)
+        candidates = doc_chunker.chunk_extracted(extracted)
+
+        chunks_added = 0
+        chunks_deduped = 0
+
+        for cand in candidates:
+            chunk_hash = compute_content_hash(cand.content)
+
+            # Deduplicate by content hash
+            existing_chunk = self.store.get_chunk_by_hash(chunk_hash)
+            if existing_chunk is not None:
+                chunks_deduped += 1
+                continue
+
+            token_count = estimate_tokens(cand.content)
+            chunk = Chunk(
+                chunk_id=None,
+                file_id=file_id,
+                content_hash=chunk_hash,
+                chunk_type=cand.chunk_type,
+                line_start=cand.line_start,
+                line_end=cand.line_end,
+                token_count=token_count,
+                content=cand.content,
+                compressed=None,
+                compression_ratio=None,
+                symbol_name=cand.symbol_name,
+                parent_chunk_id=None,
+                page_number=getattr(cand, "page_number", None),
+            )
+
+            chunk_id = self.store.save_chunk(chunk)
+
+            # Build enriched text for embedding
+            enriched = self._build_enriched_text(cand, rel_path, "")
+
+            # TF-IDF embedding
+            try:
+                terms = self.tfidf.embed(enriched)
+                self.store.insert_sparse_embedding(chunk_id, terms)
+            except Exception:
+                pass
+
+            # Dense embedding (optional)
+            if self.dense is not None:
+                try:
+                    vec_bytes = self.dense.embed_to_bytes(enriched)
+                    if vec_bytes:
+                        self.store.insert_dense_embedding(chunk_id, vec_bytes, dim=self.dense.dim)
+                except Exception:
+                    pass
+
+            self.bloom.add(chunk_hash)
+            chunks_added += 1
+
+        self.bloom.add(rel_path)
         return chunks_added, chunks_deduped
 
     def _rebuild_tfidf(self) -> None:
