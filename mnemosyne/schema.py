@@ -539,6 +539,20 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn.rollback()
             raise
 
+    # If any migration was applied, flag for one-time CLI upgrade hint.
+    if current_version > row[0]:
+        try:
+            conn.execute(
+                "INSERT INTO index_metadata (key, value, updated_at) "
+                "VALUES ('upgrade_hint_pending', ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                "updated_at=excluded.updated_at",
+                (str(current_version),),
+            )
+            conn.commit()
+        except sqlite3.Error:
+            pass  # Non-critical -- hint is cosmetic
+
 
 def open_store(db_dir: str | Path) -> sqlite3.Connection:
     """

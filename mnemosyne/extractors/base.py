@@ -74,7 +74,7 @@ class ExtractedContent:
 def classify_quality(confidence: float, text_length: int) -> str:
     """Classify extraction quality from confidence and text length.
 
-    Thresholds derived from HCCValidatorAI production OCR pipeline:
+    Thresholds derived from production OCR pipeline testing:
     - < 50 confidence -> ``'failed'``
     - 50-65 confidence -> ``'poor'``
     - >= 65 confidence AND >= 200 chars -> ``'good'``

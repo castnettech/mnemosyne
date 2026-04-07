@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 _EXTENSIONS: frozenset[str] = frozenset({".pdf"})
 
 # Minimum chars per page before we consider the extraction useful.
-# From HCCValidator lesson: ~30% of "scanned" PDFs actually have
+# From production experience: ~30% of "scanned" PDFs actually have
 # embedded text layers.  100 chars is the threshold where direct
 # extraction is worth keeping.
 _MIN_PAGE_CHARS: int = 100

@@ -3,7 +3,7 @@
 
 """Mnemosyne-Ollama -- zero-config local code search via Ollama + MCP."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from mnemosyne_ollama.agent import AgentResult, run
 

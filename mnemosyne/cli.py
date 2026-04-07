@@ -89,6 +89,21 @@ def _open_store_conn(project_root: str):
     return open_store(db_dir)
 
 
+def _check_upgrade_hint(store) -> None:
+    """Show a one-time hint after schema migration, then clear the flag."""
+    pending = store.get_index_metadata("upgrade_hint_pending")
+    if pending is None or pending == "":
+        return
+    import sys
+    from mnemosyne import __version__
+    print(
+        f"[mnemosyne] Upgraded to v{__version__} -- documents now indexed separately.\n"
+        f"[mnemosyne] Use --all to search code + docs, --docs for documents only.",
+        file=sys.stderr,
+    )
+    store.set_index_metadata("upgrade_hint_pending", "")
+
+
 def _load_config(project_root: str):
     from mnemosyne.config import Config
     return Config(root=project_root)
@@ -230,6 +245,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
     conn = _open_store_conn(project_root)
     store = _make_store(conn)
+    _check_upgrade_hint(store)
     bloom = _make_bloom(project_root)
     tfidf = _make_tfidf(store, config)
     audit = _make_audit(project_root)
@@ -416,6 +432,7 @@ def cmd_query(args: argparse.Namespace) -> int:
     config = _load_config(project_root)
     conn = _open_store_conn(project_root)
     store = _make_store(conn)
+    _check_upgrade_hint(store)
     tfidf = _make_tfidf(store, config)
     analytics = _make_analytics(store, config)
     prefetcher = _make_prefetcher(store)
