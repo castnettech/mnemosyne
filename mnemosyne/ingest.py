@@ -207,20 +207,24 @@ class Ingester:
         Raises:
             ValueError: If any path resolves outside the project root.
         """
+        from mnemosyne.hasher import is_document
+
         supported_exts: set[str] = set(self.config.general.supported_extensions)
-        max_size_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_code_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_doc_bytes: int = getattr(
+            getattr(self.config, "extraction", None),
+            "max_file_size_kb", 10240,
+        ) * 1024
 
         seen: set[str] = set()
         results: list[str] = []
 
         for p in paths:
-            # Resolve: join relative paths to project root, then realpath
             if os.path.isabs(p):
                 real = os.path.realpath(p)
             else:
                 real = os.path.realpath(os.path.join(self.root, p))
 
-            # Containment check -- must be within project root
             if real != self.root and not real.startswith(self.root + os.sep):
                 raise ValueError(f"Path '{p}' resolves outside project root")
 
@@ -233,7 +237,6 @@ class Ingester:
                         seen.add(f)
                         results.append(f)
             elif os.path.isfile(real):
-                # Apply the same extension and size filters as _scan_dir
                 rel_path = os.path.relpath(real, self.root).replace(os.sep, "/")
                 if self._should_ignore(rel_path):
                     continue
@@ -246,7 +249,8 @@ class Ingester:
                     size = os.path.getsize(real)
                 except OSError:
                     continue
-                if size > max_size_bytes:
+                max_bytes = max_doc_bytes if is_document(real) else max_code_bytes
+                if size > max_bytes:
                     continue
 
                 if real not in seen:
@@ -282,8 +286,14 @@ class Ingester:
         Returns:
             List of absolute file paths that pass all filters.
         """
+        from mnemosyne.hasher import is_document
+
         supported_exts: set[str] = set(self.config.general.supported_extensions)
-        max_size_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_code_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_doc_bytes: int = getattr(
+            getattr(self.config, "extraction", None),
+            "max_file_size_kb", 10240,
+        ) * 1024
 
         results: list[str] = []
 
@@ -313,7 +323,10 @@ class Ingester:
                     size = os.path.getsize(abs_path)
                 except OSError:
                     continue
-                if size > max_size_bytes:
+
+                # Documents get a higher size limit than code files
+                max_bytes = max_doc_bytes if is_document(abs_path) else max_code_bytes
+                if size > max_bytes:
                     continue
 
                 results.append(abs_path)
