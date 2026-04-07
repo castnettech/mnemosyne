@@ -40,7 +40,7 @@ _engine_cache: dict[str, object] = {}
 
 
 def _get_engine(project_root: str) -> tuple:
-    """Return (RetrievalEngine, Store, Config) for the given project root.
+    """Return (RetrievalEngine, Store, Config, DocRetrievalEngine, DocStore) for project root.
 
     Initialises the index directory and loads existing data on first call.
     Caches per project root so repeated queries are fast.
@@ -53,14 +53,15 @@ def _get_engine(project_root: str) -> tuple:
     from mnemosyne.config import Config
     from mnemosyne.schema import open_store
     from mnemosyne.store import Store
+    from mnemosyne.doc_store import DocStore
     from mnemosyne.embeddings import get_backend
     from mnemosyne.analytics import Analytics
     from mnemosyne.prefetch import Prefetcher
     from mnemosyne.retrieval import RetrievalEngine
+    from mnemosyne.doc_retrieval import DocRetrievalEngine
 
     mnemosyne_dir = Path(resolved) / ".mnemosyne"
     if not mnemosyne_dir.exists():
-        # Auto-initialise if not yet indexed
         from mnemosyne.schema import init_db
 
         mnemosyne_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +82,16 @@ def _get_engine(project_root: str) -> tuple:
         prefetcher=prefetcher,
     )
 
-    result = (engine, store, config)
+    # Document partition -- same connection, separate tables
+    doc_store = DocStore(conn)
+    doc_tfidf = get_backend(config, store=doc_store)
+    doc_engine = DocRetrievalEngine(
+        doc_store=doc_store,
+        tfidf_backend=doc_tfidf,
+        config=config,
+    )
+
+    result = (engine, store, config, doc_engine, doc_store)
     _engine_cache[resolved] = result
     return result
 
@@ -191,6 +201,97 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="search_docs",
+            description=(
+                "Search the document partition of a Mnemosyne index. Searches "
+                "ingested PDFs, DOCX files, CSVs, logs, and other non-code documents "
+                "using BM25 and TF-IDF with isolated vocabulary. Use this for "
+                "organizational knowledge, documentation, and reference material."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query.",
+                    },
+                    "budget": {
+                        "type": "integer",
+                        "description": "Maximum token budget for results. Default 8000.",
+                        "default": 8000,
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the project root. "
+                            "Defaults to MNEMOSYNE_PROJECT_ROOT env var or cwd."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="schema_ingest",
+            description=(
+                "Ingest database schema into the Mnemosyne index. Accepts DDL files, "
+                "JSON schema snapshots, or SQLite database paths. Schema chunks flow "
+                "through the same retrieval pipeline as code, enabling queries that "
+                "correlate code behavior with database structure and configuration."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to schema source: a .sql DDL file, .json schema snapshot, "
+                            "or .db/.sqlite SQLite database file."
+                        ),
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "Environment tag (e.g. prod, dev, staging). Default empty.",
+                        "default": "",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["auto", "ddl", "json", "yaml", "sqlite"],
+                        "description": "Source format. Default auto-detects from extension.",
+                        "default": "auto",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the project root. "
+                            "Defaults to MNEMOSYNE_PROJECT_ROOT env var or cwd."
+                        ),
+                    },
+                },
+                "required": ["source_path"],
+            },
+        ),
+        Tool(
+            name="schema_stats",
+            description=(
+                "Show statistics about ingested database schema sources: "
+                "source count, environments indexed, chunk counts by type."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the project root. "
+                            "Defaults to MNEMOSYNE_PROJECT_ROOT env var or cwd."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -199,10 +300,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         if name == "search":
             return await _handle_search(arguments)
+        elif name == "search_docs":
+            return await _handle_search_docs(arguments)
         elif name == "index":
             return await _handle_index(arguments)
         elif name == "stats":
             return await _handle_stats(arguments)
+        elif name == "schema_ingest":
+            return await _handle_schema_ingest(arguments)
+        elif name == "schema_stats":
+            return await _handle_schema_stats(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -216,9 +323,8 @@ async def _handle_search(arguments: dict) -> list[TextContent]:
 
     budget = arguments.get("budget", 8000)
     project_root = _resolve_project_root(arguments.get("project_root"))
-    engine, store, config = _get_engine(project_root)
+    engine, store, config, doc_engine, doc_store = _get_engine(project_root)
 
-    # Check if indexed
     if store.count_files() == 0:
         return [TextContent(
             type="text",
@@ -229,22 +335,79 @@ async def _handle_search(arguments: dict) -> list[TextContent]:
             ),
         )]
 
-    # Run query (blocking call, run in executor to keep async clean)
     loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(
+
+    # Code partition search
+    code_results = await loop.run_in_executor(
         None,
         lambda: engine.query(query_text=query, budget=budget, use_compression=True),
     )
 
-    if not results:
+    # Document partition search (half budget -- LLM decides relevance)
+    doc_results = await loop.run_in_executor(
+        None,
+        lambda: doc_engine.query(query_text=query, budget=budget // 2),
+    )
+
+    if not code_results and not doc_results:
         return [TextContent(type="text", text=f"No results found for: {query}")]
 
-    # Format results
+    from mnemosyne.formatter import Formatter
+
+    max_chars = 65_536
+    has_code = bool(code_results)
+    has_docs = bool(doc_results)
+
+    if has_code and has_docs:
+        per_partition = max_chars // 2
+    else:
+        per_partition = max_chars
+
+    parts: list[str] = []
+    if has_code:
+        code_text = Formatter.format_plain(code_results, query, budget, session_id=None)
+        if len(code_text) > per_partition:
+            code_text = code_text[:per_partition] + "\n... [code results truncated]"
+        parts.append("## Code Results\n\n" + code_text)
+    if has_docs:
+        doc_text = Formatter.format_plain(doc_results, query, budget // 2, session_id=None)
+        if len(doc_text) > per_partition:
+            doc_text = doc_text[:per_partition] + "\n... [document results truncated]"
+        parts.append("## Document Results\n\n" + doc_text)
+
+    output = "\n\n".join(parts)
+
+    return [TextContent(type="text", text=output)]
+
+
+async def _handle_search_docs(arguments: dict) -> list[TextContent]:
+    query = arguments.get("query", "").strip()
+    if not query:
+        return [TextContent(type="text", text="Error: query is required")]
+
+    budget = arguments.get("budget", 8000)
+    project_root = _resolve_project_root(arguments.get("project_root"))
+    _, _, config, doc_engine, doc_store = _get_engine(project_root)
+
+    if doc_store.count_chunks() == 0:
+        return [TextContent(
+            type="text",
+            text="No documents indexed yet. Run 'index' to ingest PDF, DOCX, CSV, and other document files.",
+        )]
+
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(
+        None,
+        lambda: doc_engine.query(query_text=query, budget=budget),
+    )
+
+    if not results:
+        return [TextContent(type="text", text=f"No document results for: {query}")]
+
     from mnemosyne.formatter import Formatter
 
     output = Formatter.format_plain(results, query, budget, session_id=None)
 
-    # Cap output to prevent context flooding
     max_chars = 65_536
     if len(output) > max_chars:
         output = output[:max_chars] + "\n... [truncated to 64KB]"
@@ -269,12 +432,17 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
         mnemosyne_dir.mkdir(parents=True, exist_ok=True)
         init_db(str(mnemosyne_dir))
 
+    from mnemosyne.doc_store import DocStore
+
     config = Config(root=project_root)
     conn = open_store(str(mnemosyne_dir))
     store = Store(conn)
     tfidf = get_backend(config, store)
     bloom = BloomFilter()
     audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
+
+    doc_store = DocStore(conn)
+    doc_tfidf = get_backend(config, store=doc_store)
 
     ingester = Ingester(
         project_root=project_root,
@@ -283,6 +451,8 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
         bloom=bloom,
         tfidf_backend=tfidf,
         audit=audit,
+        doc_store=doc_store,
+        doc_tfidf=doc_tfidf,
     )
 
     t0 = time.monotonic()
@@ -315,7 +485,7 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
 
 async def _handle_stats(arguments: dict) -> list[TextContent]:
     project_root = _resolve_project_root(arguments.get("project_root"))
-    _, store, config = _get_engine(project_root)
+    _, store, config, _, doc_store = _get_engine(project_root)
 
     file_count = store.count_files()
     chunk_count = store.count_chunks()
@@ -338,6 +508,120 @@ async def _handle_stats(arguments: dict) -> list[TextContent]:
     lines.append("  Chunk types:")
     for ctype, count in sorted(type_counts.items(), key=lambda x: -x[1]):
         lines.append(f"    {ctype}: {count}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_schema_ingest(arguments: dict) -> list[TextContent]:
+    source_path = arguments.get("source_path", "").strip()
+    if not source_path:
+        return [TextContent(type="text", text="Error: source_path is required")]
+
+    environment = arguments.get("environment", "")
+    fmt = arguments.get("format", "auto")
+    project_root = _resolve_project_root(arguments.get("project_root"))
+
+    from mnemosyne.config import Config
+    from mnemosyne.schema import open_store
+    from mnemosyne.store import Store
+    from mnemosyne.embeddings import get_backend
+    from mnemosyne.bloom import BloomFilter
+    from mnemosyne.audit import AuditLog
+    from mnemosyne.schema_ingest import SchemaIngester
+
+    mnemosyne_dir = Path(project_root) / ".mnemosyne"
+    if not mnemosyne_dir.exists():
+        mnemosyne_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config(root=project_root)
+    conn = open_store(str(mnemosyne_dir))
+    store = Store(conn)
+    tfidf = get_backend(config, store)
+    bloom = BloomFilter()
+    audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
+
+    ingester = SchemaIngester(
+        project_root=project_root,
+        config=config,
+        store=store,
+        bloom=bloom,
+        tfidf=tfidf,
+        audit=audit,
+    )
+
+    loop = asyncio.get_event_loop()
+
+    if fmt == "sqlite" or source_path.endswith((".db", ".sqlite", ".sqlite3")):
+        stats = await loop.run_in_executor(
+            None,
+            lambda: ingester.introspect_sqlite(source_path, env_tag=environment),
+        )
+        lines = [
+            f"Schema ingested from SQLite: {source_path}",
+            f"  Tables found:   {stats.get('tables_found', 0)}",
+            f"  Chunks added:   {stats['chunks_added']}",
+            f"  Chunks deduped: {stats['chunks_deduped']}",
+            f"  Redactions:     {stats['redactions']}",
+        ]
+    else:
+        stats = await loop.run_in_executor(
+            None,
+            lambda: ingester.ingest_from_file(source_path, env_tag=environment, fmt=fmt),
+        )
+        lines = [
+            f"Schema ingested: {source_path}",
+            f"  Environment:    {environment or '(none)'}",
+            f"  Chunks added:   {stats['chunks_added']}",
+            f"  Chunks deduped: {stats['chunks_deduped']}",
+            f"  Redactions:     {stats['redactions']}",
+        ]
+
+    # Invalidate engine cache
+    resolved = str(Path(project_root).resolve())
+    _engine_cache.pop(resolved, None)
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_schema_stats(arguments: dict) -> list[TextContent]:
+    project_root = _resolve_project_root(arguments.get("project_root"))
+
+    from mnemosyne.config import Config
+    from mnemosyne.schema import open_store
+    from mnemosyne.store import Store
+    from mnemosyne.embeddings import get_backend
+    from mnemosyne.bloom import BloomFilter
+    from mnemosyne.audit import AuditLog
+    from mnemosyne.schema_ingest import SchemaIngester
+
+    mnemosyne_dir = Path(project_root) / ".mnemosyne"
+    config = Config(root=project_root)
+    conn = open_store(str(mnemosyne_dir))
+    store = Store(conn)
+    tfidf = get_backend(config, store)
+    bloom = BloomFilter()
+    audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
+
+    ingester = SchemaIngester(
+        project_root=project_root,
+        config=config,
+        store=store,
+        bloom=bloom,
+        tfidf=tfidf,
+        audit=audit,
+    )
+
+    stats = ingester.get_schema_stats()
+    lines = [
+        f"Schema Index: {project_root}",
+        f"  Sources:      {stats['schema_sources']}",
+        f"  Environments: {', '.join(stats['environments']) or '(none)'}",
+        f"  Total chunks: {stats['total_chunks']}",
+    ]
+    if stats["chunk_types"]:
+        lines.append("  Chunk types:")
+        for ctype, count in sorted(stats["chunk_types"].items()):
+            lines.append(f"    {ctype}: {count}")
 
     return [TextContent(type="text", text="\n".join(lines))]
 

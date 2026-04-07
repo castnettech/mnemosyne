@@ -17,7 +17,11 @@
 
 ---
 
-Mnemosyne indexes your codebase into a local SQLite store, scores every chunk with a 6-signal hybrid retriever, compresses results with AST awareness, and returns exactly what you need within a token or result budget. It runs entirely locally -- no API keys, no cloud, no runtime dependencies beyond Python 3.11+.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/castnettech/mnemosyne/main/docs/assets/diagrams/mnemosyne-ecosystem.gif" alt="Mnemosyne Ecosystem -- three packages, zero cloud" width="800">
+</p>
+
+Mnemosyne indexes your codebase and documents into a local SQLite store, scores every chunk with a 6-signal hybrid retriever, compresses results with AST awareness, and returns exactly what you need within a token or result budget. Supports source code (Python, JS/TS, Go, Rust, C#, Java, Kotlin), documents (PDF, DOCX, CSV, plaintext), and database schemas (SQL DDL, JSON snapshots, SQLite introspection). It runs entirely locally -- no API keys, no cloud, no runtime dependencies beyond Python 3.11+.
 
 ## Install
 
@@ -53,7 +57,9 @@ mnemosyne query "How does authentication work?"   # search
 - **Self-tuning ARC cache** -- adapts between recency and frequency patterns automatically, persisted across sessions
 - **Delta-aware tracking** -- detects file and chunk-level changes, delivers diffs instead of full content (80-95% savings on incremental queries)
 - **Content deduplication** -- SHA-256 addressed storage eliminates duplicate chunks across files
-- **7-language structural chunking** -- Python (AST), JavaScript/TypeScript, Go, C#, Rust, Java, Kotlin, plus Markdown and plain text
+- **7-language structural chunking** -- Python (AST), JavaScript/TypeScript, Go, C#, Rust, Java, Kotlin
+- **Document ingestion** -- PDF, DOCX, CSV, and plaintext extraction into an isolated document partition with independent BM25 + TF-IDF retrieval. Optional `mnemosyne-engine[pdf]` extra for PDF support
+- **Schema ingestion** -- DDL files, JSON/YAML snapshots, and live SQLite introspection indexed alongside code for cross-domain queries
 - **Daemon mode** -- JSON-RPC over Unix socket keeps indexes warm for sub-20ms queries
 - **Full audit trail** -- append-only JSON-lines log of every operation
 - **Zero runtime dependencies** -- pure Python 3.11+ stdlib. One `pip install`, no conflicts
@@ -121,8 +127,10 @@ Works with any agent that can execute shell commands.
 |---|---|
 | `init` | Create workspace and config |
 | `ingest` | Index files (incremental, `--full` to rebuild) |
-| `query` | Search with token budget |
+| `query` | Search with token budget (`--docs`, `--all` for document partition) |
 | `stats` | Index and cache statistics |
+| `schema-ingest` | Import database schema (DDL, JSON, SQLite) |
+| `schema-stats` | Schema index statistics |
 | `compress` | Preview compression for a file |
 | `delta` | Show changes since last index |
 | `cache` | Manage ARC cache (`show`, `clear`, `warm`) |

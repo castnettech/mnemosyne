@@ -55,6 +55,8 @@ class Ingester:
         tfidf_backend,
         audit: "AuditLog",
         dense_backend=None,
+        doc_store=None,
+        doc_tfidf=None,
     ) -> None:
         self.root = os.path.abspath(project_root)
         self.config = config
@@ -63,6 +65,8 @@ class Ingester:
         self.tfidf = tfidf_backend
         self.audit = audit
         self.dense = dense_backend
+        self.doc_store = doc_store
+        self.doc_tfidf = doc_tfidf
 
     # ------------------------------------------------------------------
     # Public API
@@ -73,6 +77,7 @@ class Ingester:
         paths: list[str] | None = None,
         full: bool = False,
         dry_run: bool = False,
+        progress=None,
     ) -> dict:
         """
         Index files in the project.
@@ -124,8 +129,12 @@ class Ingester:
                     self.store.delete_chunks_for_file(rec.file_id)
                     self.store.mark_deleted(rec.file_id)
 
-        for abs_path in file_list:
+        total = len(file_list)
+        for i, abs_path in enumerate(file_list):
             rel_path = os.path.relpath(abs_path, self.root).replace(os.sep, "/")
+
+            if progress is not None:
+                progress(i + 1, total, rel_path, stats)
 
             try:
                 if not self._needs_indexing(abs_path, rel_path, full):
@@ -143,7 +152,6 @@ class Ingester:
 
             except Exception as exc:
                 stats["files_failed"] += 1
-                # Best-effort audit of the failure
                 try:
                     self.audit.log(
                         "ingest_error",
@@ -199,20 +207,24 @@ class Ingester:
         Raises:
             ValueError: If any path resolves outside the project root.
         """
+        from mnemosyne.hasher import is_document
+
         supported_exts: set[str] = set(self.config.general.supported_extensions)
-        max_size_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_code_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_doc_bytes: int = getattr(
+            getattr(self.config, "extraction", None),
+            "max_file_size_kb", 10240,
+        ) * 1024
 
         seen: set[str] = set()
         results: list[str] = []
 
         for p in paths:
-            # Resolve: join relative paths to project root, then realpath
             if os.path.isabs(p):
                 real = os.path.realpath(p)
             else:
                 real = os.path.realpath(os.path.join(self.root, p))
 
-            # Containment check -- must be within project root
             if real != self.root and not real.startswith(self.root + os.sep):
                 raise ValueError(f"Path '{p}' resolves outside project root")
 
@@ -225,7 +237,6 @@ class Ingester:
                         seen.add(f)
                         results.append(f)
             elif os.path.isfile(real):
-                # Apply the same extension and size filters as _scan_dir
                 rel_path = os.path.relpath(real, self.root).replace(os.sep, "/")
                 if self._should_ignore(rel_path):
                     continue
@@ -238,7 +249,8 @@ class Ingester:
                     size = os.path.getsize(real)
                 except OSError:
                     continue
-                if size > max_size_bytes:
+                max_bytes = max_doc_bytes if is_document(real) else max_code_bytes
+                if size > max_bytes:
                     continue
 
                 if real not in seen:
@@ -274,8 +286,14 @@ class Ingester:
         Returns:
             List of absolute file paths that pass all filters.
         """
+        from mnemosyne.hasher import is_document
+
         supported_exts: set[str] = set(self.config.general.supported_extensions)
-        max_size_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_code_bytes: int = self.config.general.max_file_size_kb * 1024
+        max_doc_bytes: int = getattr(
+            getattr(self.config, "extraction", None),
+            "max_file_size_kb", 10240,
+        ) * 1024
 
         results: list[str] = []
 
@@ -305,7 +323,10 @@ class Ingester:
                     size = os.path.getsize(abs_path)
                 except OSError:
                     continue
-                if size > max_size_bytes:
+
+                # Documents get a higher size limit than code files
+                max_bytes = max_doc_bytes if is_document(abs_path) else max_code_bytes
+                if size > max_bytes:
                     continue
 
                 results.append(abs_path)
@@ -436,15 +457,23 @@ class Ingester:
         """
         Read, chunk, dedup, store, and embed a single file.
 
+        Binary/document files are routed through the extractor pipeline
+        when an appropriate extractor is available.  Source code files
+        continue through the existing chunker pipeline.
+
         Returns:
             ``(chunks_added, chunks_deduped)`` counts.
         """
-        from mnemosyne.hasher import file_hash, is_binary
+        from mnemosyne.hasher import file_hash, is_binary, is_document
         from mnemosyne.chunkers import get_chunker, detect_language
 
-        # Skip binary files
-        if is_binary(abs_path):
-            return 0, 0
+        # Route document files through the extractor pipeline
+        if is_document(abs_path) or is_binary(abs_path):
+            return self._index_document(abs_path, rel_path)
+
+        # Gate: check extraction config
+        if not getattr(self.config, "extraction", None):
+            pass  # no extraction config = code-only mode
 
         try:
             with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -517,6 +546,7 @@ class Ingester:
                 compression_ratio=None,
                 symbol_name=cand.symbol_name,
                 parent_chunk_id=None,
+                page_number=getattr(cand, "page_number", None),
             )
 
             chunk_id = self.store.save_chunk(chunk)
@@ -548,6 +578,103 @@ class Ingester:
         # Also add the file path to the Bloom filter
         self.bloom.add(rel_path)
 
+        return chunks_added, chunks_deduped
+
+    def _index_document(self, abs_path: str, rel_path: str) -> tuple[int, int]:
+        """Extract text from a document file, chunk it, and index.
+
+        Routes through the extractor pipeline and writes to the document
+        partition (doc_store) when available.  If no doc_store is configured,
+        skips the file -- documents do not enter the code partition.
+
+        Returns:
+            ``(chunks_added, chunks_deduped)`` counts.
+        """
+        if self.doc_store is None:
+            return 0, 0
+
+        from mnemosyne.extractors import extract_file
+        from mnemosyne.hasher import file_hash_binary, content_hash as compute_content_hash
+        from mnemosyne.chunkers.document_chunker import DocumentChunker
+
+        extracted = extract_file(abs_path, self.config)
+        if extracted is None or not extracted.pages:
+            return 0, 0
+
+        if extracted.extraction_quality == "failed" and not extracted.full_text.strip():
+            return 0, 0
+
+        mtime = os.path.getmtime(abs_path)
+        size = os.path.getsize(abs_path)
+        content_hash_val = file_hash_binary(abs_path)
+
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        file_record = FileRecord(
+            file_id=None,
+            rel_path=rel_path,
+            content_hash=content_hash_val,
+            size_bytes=size,
+            language="document",
+            last_modified=mtime,
+            last_indexed=now_iso,
+            is_deleted=False,
+            source_type="document",
+            extraction_method=extracted.extraction_method,
+            extraction_quality=extracted.extraction_quality,
+            page_count=extracted.page_count,
+        )
+        # FileRecord goes to the shared files table (via code store)
+        file_id = self.store.upsert_file(file_record)
+
+        # Chunks go to the document partition
+        self.doc_store.delete_chunks_for_file(file_id)
+
+        doc_chunker = DocumentChunker(self.config)
+        candidates = doc_chunker.chunk_extracted(extracted)
+
+        chunks_added = 0
+        chunks_deduped = 0
+        doc_tfidf = self.doc_tfidf or self.tfidf
+
+        for cand in candidates:
+            chunk_hash = compute_content_hash(cand.content)
+
+            existing_chunk = self.doc_store.get_chunk_by_hash(chunk_hash)
+            if existing_chunk is not None:
+                chunks_deduped += 1
+                continue
+
+            token_count = estimate_tokens(cand.content)
+            chunk = Chunk(
+                chunk_id=None,
+                file_id=file_id,
+                content_hash=chunk_hash,
+                chunk_type=cand.chunk_type,
+                line_start=cand.line_start,
+                line_end=cand.line_end,
+                token_count=token_count,
+                content=cand.content,
+                compressed=None,
+                compression_ratio=None,
+                symbol_name=cand.symbol_name,
+                parent_chunk_id=None,
+                page_number=getattr(cand, "page_number", None),
+            )
+
+            chunk_id = self.doc_store.insert_chunk(chunk)
+
+            enriched = self._build_enriched_text(cand, rel_path, "")
+
+            try:
+                terms = doc_tfidf.embed(enriched)
+                self.doc_store.insert_sparse_embedding(chunk_id, terms)
+            except Exception:
+                pass
+
+            self.bloom.add(chunk_hash)
+            chunks_added += 1
+
+        self.bloom.add(rel_path)
         return chunks_added, chunks_deduped
 
     def _rebuild_tfidf(self) -> None:
@@ -592,5 +719,39 @@ class Ingester:
         # Persist vocabulary for future sessions
         try:
             self.tfidf._save_vocabulary()
+        except Exception:
+            pass
+
+        # Rebuild document partition TF-IDF (isolated vocabulary)
+        if self.doc_store is not None and self.doc_tfidf is not None:
+            self._rebuild_doc_tfidf()
+
+    def _rebuild_doc_tfidf(self) -> None:
+        """Rebuild TF-IDF for the document partition with isolated IDF."""
+        rows = self.doc_store.conn.execute(
+            "SELECT c.chunk_id, c.content, c.chunk_type, c.symbol_name, "
+            "       f.rel_path "
+            "FROM doc_chunks c JOIN files f ON c.file_id = f.file_id"
+        ).fetchall()
+        if not rows:
+            return
+
+        enriched_texts: list[str] = []
+        for row in rows:
+            parts: list[str] = [f"# File: {row[4]}"]
+            if row[3]:
+                parts.append(f"# Section: {row[3]}")
+            parts.append(row[1])
+            enriched_texts.append("\n".join(parts))
+
+        self.doc_tfidf.build_vocabulary(enriched_texts)
+
+        for row, enriched in zip(rows, enriched_texts):
+            terms = self.doc_tfidf.embed(enriched)
+            if terms:
+                self.doc_store.insert_sparse_embedding(row[0], terms)
+
+        try:
+            self.doc_tfidf._save_vocabulary()
         except Exception:
             pass

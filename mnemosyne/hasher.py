@@ -134,6 +134,55 @@ def is_binary(path: str | Path) -> bool:
     return b"\x00" in probe
 
 
+def file_hash_binary(path: str | Path) -> str:
+    """
+    Compute the SHA-256 hash of a binary file at *path* using raw bytes.
+
+    Unlike :func:`file_hash`, this variant reads the file in binary mode
+    without text normalisation.  Suitable for PDFs, images, and other
+    non-text files where byte-level identity matters.
+
+    Args:
+        path: Filesystem path to the file.
+
+    Returns:
+        64-character lowercase hex string.
+    """
+    hasher = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def is_document(path: str | Path) -> bool:
+    """
+    Return True if *path* has a known document extension.
+
+    Document files are binary (PDFs, DOCX) or structured text (CSV, XML)
+    that need special extraction rather than direct source-code chunking.
+
+    Args:
+        path: Filesystem path or filename to check.
+
+    Returns:
+        True if the file extension is a known document type.
+    """
+    import os
+    _, ext = os.path.splitext(str(path))
+    return ext.lower() in _DOCUMENT_EXTENSIONS
+
+
+_DOCUMENT_EXTENSIONS: frozenset[str] = frozenset({
+    ".pdf", ".docx",
+    ".csv", ".tsv",
+    ".md", ".txt",
+    ".log", ".cfg", ".ini", ".conf",
+    ".rst", ".xml", ".svg",
+    ".adoc", ".org", ".textile",
+})
+
+
 def bytes_hash(data: bytes) -> str:
     """
     Return the SHA-256 hex digest of raw bytes *data* without normalisation.

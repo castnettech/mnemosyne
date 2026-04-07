@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemosyne-engine"
-version = "1.0.5"
-description = "LLM Context Compression and Retrieval Engine -- zero dependencies, sub-100ms queries, 40-70% token reduction"
+version = "1.1.0"
+description = "LLM Context Compression and Retrieval Engine -- zero dependencies, sub-100ms queries, document + code ingestion"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
@@ -33,6 +33,7 @@ Issues = "https://github.com/castnettech/mnemosyne/issues"
 mnemosyne = "mnemosyne.cli:main"
 
 [project.optional-dependencies]
+pdf = ["pypdf>=4.0"]
 dense = ["onnxruntime>=1.17"]
 dev = ["pytest>=8.3"]
 

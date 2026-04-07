@@ -49,11 +49,12 @@ class ChunkCandidate:
     """
 
     content: str
-    chunk_type: str  # 'function' | 'class' | 'imports' | 'block'
+    chunk_type: str  # 'function' | 'class' | 'imports' | 'block' | 'paragraph' | 'table'
     line_start: int
     line_end: int
     symbol_name: str | None = None
     parent_symbol: str | None = None
+    page_number: int | None = None  # 1-based page for documents, None for code
 
 
 # ---------------------------------------------------------------------------
