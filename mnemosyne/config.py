@@ -25,19 +25,18 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     "general": {
         "project_root": ".",
         "ignore_patterns": [
-            # Version control / build
-            ".git",
+            # Hidden directories and files -- catches .git, .mnemosyne,
+            # .env, .ssh, .aws, .vscode, .idea, .github, etc.
+            ".*",
+            # Build artifacts
             "node_modules",
             "__pycache__",
-            ".mnemosyne",
             "mnemosyne",
             "*.pyc",
             "*.lock",
             "*.min.js",
             "*.min.css",
-            # Secrets and credentials -- NEVER index these
-            ".env",
-            ".env.*",
+            # Secrets and credentials
             "*.pem",
             "*.key",
             "*.p12",
@@ -50,22 +49,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             "id_ed25519*",
             "id_ecdsa*",
             "id_dsa*",
-            ".ssh",
             "credentials.json",
             "credentials.yaml",
             "service-account*.json",
             "*.credential",
-            ".netrc",
-            ".npmrc",
-            ".pypirc",
-            ".docker/config.json",
             "*.htpasswd",
-            # Token / auth files
             "token.json",
             "*.token",
-            ".git-credentials",
-            # AWS / cloud
-            ".aws",
             "*.tfvars",
             # Common non-source noise
             "package-lock.json",
