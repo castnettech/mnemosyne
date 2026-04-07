@@ -40,7 +40,7 @@ _engine_cache: dict[str, object] = {}
 
 
 def _get_engine(project_root: str) -> tuple:
-    """Return (RetrievalEngine, Store, Config) for the given project root.
+    """Return (RetrievalEngine, Store, Config, DocRetrievalEngine, DocStore) for project root.
 
     Initialises the index directory and loads existing data on first call.
     Caches per project root so repeated queries are fast.
@@ -53,14 +53,15 @@ def _get_engine(project_root: str) -> tuple:
     from mnemosyne.config import Config
     from mnemosyne.schema import open_store
     from mnemosyne.store import Store
+    from mnemosyne.doc_store import DocStore
     from mnemosyne.embeddings import get_backend
     from mnemosyne.analytics import Analytics
     from mnemosyne.prefetch import Prefetcher
     from mnemosyne.retrieval import RetrievalEngine
+    from mnemosyne.doc_retrieval import DocRetrievalEngine
 
     mnemosyne_dir = Path(resolved) / ".mnemosyne"
     if not mnemosyne_dir.exists():
-        # Auto-initialise if not yet indexed
         from mnemosyne.schema import init_db
 
         mnemosyne_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +82,16 @@ def _get_engine(project_root: str) -> tuple:
         prefetcher=prefetcher,
     )
 
-    result = (engine, store, config)
+    # Document partition -- same connection, separate tables
+    doc_store = DocStore(conn)
+    doc_tfidf = get_backend(config, store=None)
+    doc_engine = DocRetrievalEngine(
+        doc_store=doc_store,
+        tfidf_backend=doc_tfidf,
+        config=config,
+    )
+
+    result = (engine, store, config, doc_engine, doc_store)
     _engine_cache[resolved] = result
     return result
 
@@ -192,6 +202,37 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="search_docs",
+            description=(
+                "Search the document partition of a Mnemosyne index. Searches "
+                "ingested PDFs, DOCX files, CSVs, logs, and other non-code documents "
+                "using BM25 and TF-IDF with isolated vocabulary. Use this for "
+                "organizational knowledge, documentation, and reference material."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query.",
+                    },
+                    "budget": {
+                        "type": "integer",
+                        "description": "Maximum token budget for results. Default 8000.",
+                        "default": 8000,
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the project root. "
+                            "Defaults to MNEMOSYNE_PROJECT_ROOT env var or cwd."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
             name="schema_ingest",
             description=(
                 "Ingest database schema into the Mnemosyne index. Accepts DDL files, "
@@ -259,6 +300,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         if name == "search":
             return await _handle_search(arguments)
+        elif name == "search_docs":
+            return await _handle_search_docs(arguments)
         elif name == "index":
             return await _handle_index(arguments)
         elif name == "stats":
@@ -280,9 +323,8 @@ async def _handle_search(arguments: dict) -> list[TextContent]:
 
     budget = arguments.get("budget", 8000)
     project_root = _resolve_project_root(arguments.get("project_root"))
-    engine, store, config = _get_engine(project_root)
+    engine, store, config, doc_engine, doc_store = _get_engine(project_root)
 
-    # Check if indexed
     if store.count_files() == 0:
         return [TextContent(
             type="text",
@@ -293,22 +335,70 @@ async def _handle_search(arguments: dict) -> list[TextContent]:
             ),
         )]
 
-    # Run query (blocking call, run in executor to keep async clean)
     loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(
+
+    # Code partition search
+    code_results = await loop.run_in_executor(
         None,
         lambda: engine.query(query_text=query, budget=budget, use_compression=True),
     )
 
-    if not results:
+    # Document partition search (half budget -- LLM decides relevance)
+    doc_results = await loop.run_in_executor(
+        None,
+        lambda: doc_engine.query(query_text=query, budget=budget // 2),
+    )
+
+    if not code_results and not doc_results:
         return [TextContent(type="text", text=f"No results found for: {query}")]
 
-    # Format results
+    from mnemosyne.formatter import Formatter
+
+    parts: list[str] = []
+    if code_results:
+        parts.append("## Code Results")
+        parts.append(Formatter.format_plain(code_results, query, budget, session_id=None))
+    if doc_results:
+        parts.append("## Document Results")
+        parts.append(Formatter.format_plain(doc_results, query, budget // 2, session_id=None))
+
+    output = "\n\n".join(parts)
+
+    max_chars = 65_536
+    if len(output) > max_chars:
+        output = output[:max_chars] + "\n... [truncated to 64KB]"
+
+    return [TextContent(type="text", text=output)]
+
+
+async def _handle_search_docs(arguments: dict) -> list[TextContent]:
+    query = arguments.get("query", "").strip()
+    if not query:
+        return [TextContent(type="text", text="Error: query is required")]
+
+    budget = arguments.get("budget", 8000)
+    project_root = _resolve_project_root(arguments.get("project_root"))
+    _, _, config, doc_engine, doc_store = _get_engine(project_root)
+
+    if doc_store.count_chunks() == 0:
+        return [TextContent(
+            type="text",
+            text="No documents indexed yet. Run 'index' to ingest PDF, DOCX, CSV, and other document files.",
+        )]
+
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(
+        None,
+        lambda: doc_engine.query(query_text=query, budget=budget),
+    )
+
+    if not results:
+        return [TextContent(type="text", text=f"No document results for: {query}")]
+
     from mnemosyne.formatter import Formatter
 
     output = Formatter.format_plain(results, query, budget, session_id=None)
 
-    # Cap output to prevent context flooding
     max_chars = 65_536
     if len(output) > max_chars:
         output = output[:max_chars] + "\n... [truncated to 64KB]"
@@ -333,12 +423,17 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
         mnemosyne_dir.mkdir(parents=True, exist_ok=True)
         init_db(str(mnemosyne_dir))
 
+    from mnemosyne.doc_store import DocStore
+
     config = Config(root=project_root)
     conn = open_store(str(mnemosyne_dir))
     store = Store(conn)
     tfidf = get_backend(config, store)
     bloom = BloomFilter()
     audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
+
+    doc_store = DocStore(conn)
+    doc_tfidf = get_backend(config, store=None)
 
     ingester = Ingester(
         project_root=project_root,
@@ -347,6 +442,8 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
         bloom=bloom,
         tfidf_backend=tfidf,
         audit=audit,
+        doc_store=doc_store,
+        doc_tfidf=doc_tfidf,
     )
 
     t0 = time.monotonic()

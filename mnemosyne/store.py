@@ -992,7 +992,11 @@ class Store:
             self.conn.execute(
                 """
                 DELETE FROM cache_state
-                WHERE chunk_id NOT IN (SELECT chunk_id FROM chunks)
+                WHERE chunk_id NOT IN (
+                    SELECT chunk_id FROM chunks
+                    UNION ALL
+                    SELECT chunk_id FROM doc_chunks
+                )
                 """
             )
 
@@ -1004,7 +1008,11 @@ class Store:
             self.conn.execute(
                 """
                 DELETE FROM usage_events
-                WHERE chunk_id NOT IN (SELECT chunk_id FROM chunks)
+                WHERE chunk_id NOT IN (
+                    SELECT chunk_id FROM chunks
+                    UNION ALL
+                    SELECT chunk_id FROM doc_chunks
+                )
                 """
             )
 

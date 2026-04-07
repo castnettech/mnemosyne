@@ -55,6 +55,8 @@ class Ingester:
         tfidf_backend,
         audit: "AuditLog",
         dense_backend=None,
+        doc_store=None,
+        doc_tfidf=None,
     ) -> None:
         self.root = os.path.abspath(project_root)
         self.config = config
@@ -63,6 +65,8 @@ class Ingester:
         self.tfidf = tfidf_backend
         self.audit = audit
         self.dense = dense_backend
+        self.doc_store = doc_store
+        self.doc_tfidf = doc_tfidf
 
     # ------------------------------------------------------------------
     # Public API
@@ -562,24 +566,24 @@ class Ingester:
     def _index_document(self, abs_path: str, rel_path: str) -> tuple[int, int]:
         """Extract text from a document file, chunk it, and index.
 
-        Routes the file through the extractor pipeline (PDF, DOCX, CSV,
-        plaintext) and then through the DocumentChunker.  Falls back
-        gracefully: if no extractor is available for this file type,
-        returns (0, 0) without error.
+        Routes through the extractor pipeline and writes to the document
+        partition (doc_store) when available.  If no doc_store is configured,
+        skips the file -- documents do not enter the code partition.
 
         Returns:
             ``(chunks_added, chunks_deduped)`` counts.
         """
+        if self.doc_store is None:
+            return 0, 0
+
         from mnemosyne.extractors import extract_file
         from mnemosyne.hasher import file_hash_binary, content_hash as compute_content_hash
         from mnemosyne.chunkers.document_chunker import DocumentChunker
 
-        # Attempt extraction
         extracted = extract_file(abs_path, self.config)
         if extracted is None or not extracted.pages:
             return 0, 0
 
-        # Skip completely failed extractions
         if extracted.extraction_quality == "failed" and not extracted.full_text.strip():
             return 0, 0
 
@@ -587,7 +591,6 @@ class Ingester:
         size = os.path.getsize(abs_path)
         content_hash_val = file_hash_binary(abs_path)
 
-        # Upsert FileRecord with document metadata
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         file_record = FileRecord(
             file_id=None,
@@ -603,23 +606,23 @@ class Ingester:
             extraction_quality=extracted.extraction_quality,
             page_count=extracted.page_count,
         )
+        # FileRecord goes to the shared files table (via code store)
         file_id = self.store.upsert_file(file_record)
 
-        # Delete old chunks for this file before re-chunking
-        self.store.delete_chunks_for_file(file_id)
+        # Chunks go to the document partition
+        self.doc_store.delete_chunks_for_file(file_id)
 
-        # Chunk the extracted content
         doc_chunker = DocumentChunker(self.config)
         candidates = doc_chunker.chunk_extracted(extracted)
 
         chunks_added = 0
         chunks_deduped = 0
+        doc_tfidf = self.doc_tfidf or self.tfidf
 
         for cand in candidates:
             chunk_hash = compute_content_hash(cand.content)
 
-            # Deduplicate by content hash
-            existing_chunk = self.store.get_chunk_by_hash(chunk_hash)
+            existing_chunk = self.doc_store.get_chunk_by_hash(chunk_hash)
             if existing_chunk is not None:
                 chunks_deduped += 1
                 continue
@@ -641,26 +644,15 @@ class Ingester:
                 page_number=getattr(cand, "page_number", None),
             )
 
-            chunk_id = self.store.save_chunk(chunk)
+            chunk_id = self.doc_store.insert_chunk(chunk)
 
-            # Build enriched text for embedding
             enriched = self._build_enriched_text(cand, rel_path, "")
 
-            # TF-IDF embedding
             try:
-                terms = self.tfidf.embed(enriched)
-                self.store.insert_sparse_embedding(chunk_id, terms)
+                terms = doc_tfidf.embed(enriched)
+                self.doc_store.insert_sparse_embedding(chunk_id, terms)
             except Exception:
                 pass
-
-            # Dense embedding (optional)
-            if self.dense is not None:
-                try:
-                    vec_bytes = self.dense.embed_to_bytes(enriched)
-                    if vec_bytes:
-                        self.store.insert_dense_embedding(chunk_id, vec_bytes, dim=self.dense.dim)
-                except Exception:
-                    pass
 
             self.bloom.add(chunk_hash)
             chunks_added += 1
@@ -710,5 +702,39 @@ class Ingester:
         # Persist vocabulary for future sessions
         try:
             self.tfidf._save_vocabulary()
+        except Exception:
+            pass
+
+        # Rebuild document partition TF-IDF (isolated vocabulary)
+        if self.doc_store is not None and self.doc_tfidf is not None:
+            self._rebuild_doc_tfidf()
+
+    def _rebuild_doc_tfidf(self) -> None:
+        """Rebuild TF-IDF for the document partition with isolated IDF."""
+        rows = self.doc_store.conn.execute(
+            "SELECT c.chunk_id, c.content, c.chunk_type, c.symbol_name, "
+            "       f.rel_path "
+            "FROM doc_chunks c JOIN files f ON c.file_id = f.file_id"
+        ).fetchall()
+        if not rows:
+            return
+
+        enriched_texts: list[str] = []
+        for row in rows:
+            parts: list[str] = [f"# File: {row[4]}"]
+            if row[3]:
+                parts.append(f"# Section: {row[3]}")
+            parts.append(row[1])
+            enriched_texts.append("\n".join(parts))
+
+        self.doc_tfidf.build_vocabulary(enriched_texts)
+
+        for row, enriched in zip(rows, enriched_texts):
+            terms = self.doc_tfidf.embed(enriched)
+            if terms:
+                self.doc_store.insert_sparse_embedding(row[0], terms)
+
+        try:
+            self.doc_tfidf._save_vocabulary()
         except Exception:
             pass

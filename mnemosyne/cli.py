@@ -235,6 +235,12 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     audit = _make_audit(project_root)
     dense = _make_dense_backend(config, store, project_root)
 
+    from mnemosyne.doc_store import DocStore
+    from mnemosyne.embeddings import get_backend as _get_be
+
+    doc_store = DocStore(conn)
+    doc_tfidf = _get_be(config, store=None)
+
     from mnemosyne.ingest import Ingester
     ingester = Ingester(
         project_root=project_root,
@@ -244,6 +250,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         tfidf_backend=tfidf,
         audit=audit,
         dense_backend=dense,
+        doc_store=doc_store,
+        doc_tfidf=doc_tfidf,
     )
 
     paths = args.paths if args.paths else None
@@ -397,28 +405,48 @@ def cmd_query(args: argparse.Namespace) -> int:
     else:
         analytics.start_session(session_id)
 
-    from mnemosyne.retrieval import RetrievalEngine
-    engine = RetrievalEngine(
-        store=store,
-        tfidf_backend=tfidf,
-        config=config,
-        analytics=analytics,
-        prefetcher=prefetcher,
-        dense_backend=dense,
-    )
-
-    budget = args.budget  # None delegates to config default inside engine.query
-
-    results = engine.query(
-        query_text=args.text,
-        budget=budget,
-        session_id=session_id,
-        use_compression=not args.no_compress,
-    )
-
+    budget = args.budget
     effective_budget = budget if budget is not None else config.retrieval.token_budget
 
     from mnemosyne.formatter import Formatter
+
+    search_docs = getattr(args, "docs", False)
+    search_all = getattr(args, "search_all", False)
+
+    results = []
+
+    # Document partition search
+    if search_docs or search_all:
+        from mnemosyne.doc_store import DocStore
+        from mnemosyne.doc_retrieval import DocRetrievalEngine
+        from mnemosyne.embeddings import get_backend as _get_be
+
+        doc_store = DocStore(conn)
+        doc_tfidf = _get_be(config, store=None)
+        doc_engine = DocRetrievalEngine(
+            doc_store=doc_store, tfidf_backend=doc_tfidf, config=config,
+        )
+        doc_budget = effective_budget // 2 if search_all else effective_budget
+        results.extend(doc_engine.query(query_text=args.text, budget=doc_budget))
+
+    # Code partition search (default, or --all)
+    if not search_docs or search_all:
+        from mnemosyne.retrieval import RetrievalEngine
+        engine = RetrievalEngine(
+            store=store,
+            tfidf_backend=tfidf,
+            config=config,
+            analytics=analytics,
+            prefetcher=prefetcher,
+            dense_backend=dense,
+        )
+        code_budget = effective_budget // 2 if search_all else effective_budget
+        results.extend(engine.query(
+            query_text=args.text,
+            budget=code_budget,
+            session_id=session_id,
+            use_compression=not args.no_compress,
+        ))
 
     if args.format == "json":
         output = Formatter.format_json(results, args.text, effective_budget, session_id)
@@ -1135,6 +1163,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_query.add_argument(
         "--show-scores", action="store_true",
         help="Include per-signal scores in plain-text output headers",
+    )
+    p_query.add_argument(
+        "--docs", action="store_true",
+        help="Search the document partition only (PDFs, DOCX, CSV, logs)",
+    )
+    p_query.add_argument(
+        "--all", action="store_true", dest="search_all",
+        help="Search both code and document partitions",
     )
 
     # stats

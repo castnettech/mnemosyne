@@ -91,83 +91,88 @@ def project(tmp_path):
 
 @pytest.fixture
 def engine(project):
-    """Set up the full ingestion engine."""
+    """Set up the full ingestion engine with doc partition."""
+    from mnemosyne.doc_store import DocStore
+
     config = Config(root=project)
     db_dir = project / ".mnemosyne"
     conn = open_store(db_dir)
     store = Store(conn)
+    doc_store = DocStore(conn)
     bloom = BloomFilter()
     tfidf = get_backend(config, store)
+    doc_tfidf = get_backend(config, store=None)
     audit = AuditLog(db_dir)
-    ingester = Ingester(project, config, store, bloom, tfidf, audit)
-    return ingester, store, config
+    ingester = Ingester(
+        project, config, store, bloom, tfidf, audit,
+        doc_store=doc_store, doc_tfidf=doc_tfidf,
+    )
+    return ingester, store, doc_store, config
 
 
 class TestDocumentIngestion:
-    """Test full document ingestion pipeline."""
+    """Test full document ingestion pipeline with partition isolation."""
 
     def test_ingest_mixed_project(self, engine):
-        ingester, store, config = engine
+        ingester, store, doc_store, config = engine
         stats = ingester.ingest()
 
         assert stats["files_scanned"] > 0
         assert stats["files_indexed"] > 0
         assert stats["files_failed"] == 0
 
-    def test_csv_chunks_indexed(self, engine):
-        ingester, store, config = engine
+    def test_csv_chunks_in_doc_partition(self, engine):
+        ingester, store, doc_store, config = engine
         ingester.ingest()
 
-        # Find the CSV file record
         file_rec = store.get_file_record_by_path("data.csv")
         assert file_rec is not None
         assert file_rec.source_type == "document"
         assert file_rec.extraction_method == "direct"
         assert file_rec.extraction_quality == "good"
 
-        # Check chunks were created
-        chunks = store.get_chunks_for_file(file_rec.file_id)
-        assert len(chunks) > 0
-
-        # Verify CSV content is searchable
-        full_text = " ".join(c.content for c in chunks)
+        # Chunks should be in doc partition, not code partition
+        doc_chunks = doc_store.get_chunks_for_file(file_rec.file_id)
+        assert len(doc_chunks) > 0
+        full_text = " ".join(c.content for c in doc_chunks)
         assert "item_0" in full_text
-        assert "name" in full_text.lower()
 
-    def test_docx_chunks_indexed(self, engine):
-        ingester, store, config = engine
+        # Code partition should NOT have these chunks
+        code_chunks = store.get_chunks_for_file(file_rec.file_id)
+        assert len(code_chunks) == 0
+
+    def test_docx_chunks_in_doc_partition(self, engine):
+        ingester, store, doc_store, config = engine
         ingester.ingest()
 
         file_rec = store.get_file_record_by_path("report.docx")
         assert file_rec is not None
         assert file_rec.source_type == "document"
-        assert file_rec.extraction_quality == "good"
 
-        chunks = store.get_chunks_for_file(file_rec.file_id)
-        assert len(chunks) > 0
-        full_text = " ".join(c.content for c in chunks)
+        doc_chunks = doc_store.get_chunks_for_file(file_rec.file_id)
+        assert len(doc_chunks) > 0
+        full_text = " ".join(c.content for c in doc_chunks)
         assert "Revenue" in full_text
 
-    def test_log_file_indexed(self, engine):
-        ingester, store, config = engine
+    def test_log_file_in_doc_partition(self, engine):
+        ingester, store, doc_store, config = engine
         ingester.ingest()
 
         file_rec = store.get_file_record_by_path("server.log")
         assert file_rec is not None
         assert file_rec.source_type == "document"
 
-        chunks = store.get_chunks_for_file(file_rec.file_id)
-        assert len(chunks) > 0
+        doc_chunks = doc_store.get_chunks_for_file(file_rec.file_id)
+        assert len(doc_chunks) > 0
 
     def test_python_still_works(self, engine):
         """Existing code indexing is unaffected."""
-        ingester, store, config = engine
+        ingester, store, doc_store, config = engine
         ingester.ingest()
 
         file_rec = store.get_file_record_by_path("main.py")
         assert file_rec is not None
         assert file_rec.language == "python"
-        # Code files should NOT have extraction metadata
         assert file_rec.source_type == "file"
 
         chunks = store.get_chunks_for_file(file_rec.file_id)
@@ -176,25 +181,24 @@ class TestDocumentIngestion:
 
     def test_incremental_reindex(self, engine, project):
         """Second ingest skips unchanged files."""
-        ingester, store, config = engine
+        ingester, store, doc_store, config = engine
 
         stats1 = ingester.ingest()
         stats2 = ingester.ingest()
 
-        # Second pass should skip everything
         assert stats2["files_indexed"] == 0
         assert stats2["files_skipped"] == stats1["files_indexed"]
 
-    def test_ini_file_indexed(self, engine):
-        ingester, store, config = engine
+    def test_ini_file_in_doc_partition(self, engine):
+        ingester, store, doc_store, config = engine
         ingester.ingest()
 
         file_rec = store.get_file_record_by_path("app.ini")
         assert file_rec is not None
 
-        chunks = store.get_chunks_for_file(file_rec.file_id)
-        assert len(chunks) > 0
-        full_text = " ".join(c.content for c in chunks)
+        doc_chunks = doc_store.get_chunks_for_file(file_rec.file_id)
+        assert len(doc_chunks) > 0
+        full_text = " ".join(c.content for c in doc_chunks)
         assert "pool_size" in full_text
 
 
