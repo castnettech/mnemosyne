@@ -25,19 +25,18 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     "general": {
         "project_root": ".",
         "ignore_patterns": [
-            # Version control / build
-            ".git",
+            # Hidden directories and files -- catches .git, .mnemosyne,
+            # .env, .ssh, .aws, .vscode, .idea, .github, etc.
+            ".*",
+            # Build artifacts
             "node_modules",
             "__pycache__",
-            ".mnemosyne",
             "mnemosyne",
             "*.pyc",
             "*.lock",
             "*.min.js",
             "*.min.css",
-            # Secrets and credentials -- NEVER index these
-            ".env",
-            ".env.*",
+            # Secrets and credentials
             "*.pem",
             "*.key",
             "*.p12",
@@ -50,22 +49,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             "id_ed25519*",
             "id_ecdsa*",
             "id_dsa*",
-            ".ssh",
             "credentials.json",
             "credentials.yaml",
             "service-account*.json",
             "*.credential",
-            ".netrc",
-            ".npmrc",
-            ".pypirc",
-            ".docker/config.json",
             "*.htpasswd",
-            # Token / auth files
             "token.json",
             "*.token",
-            ".git-credentials",
-            # AWS / cloud
-            ".aws",
             "*.tfvars",
             # Common non-source noise
             "package-lock.json",
@@ -87,6 +77,18 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             ".css",
             ".jsx",
             ".tsx",
+            # Document formats (Tier 0 -- text extraction)
+            ".pdf",
+            ".docx",
+            ".csv",
+            ".tsv",
+            # Additional plaintext formats
+            ".log",
+            ".cfg",
+            ".ini",
+            ".conf",
+            ".rst",
+            ".xml",
         ],
     },
     "chunking": {
@@ -129,6 +131,18 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     "analytics": {
         "decay_halflife_days": 7,
         "session_timeout_minutes": 30,
+    },
+    "database": {
+        "schema_sources": [],       # paths to DDL/JSON/YAML files or directories
+        "environment_tag": "",      # e.g. "prod", "dev", "staging"
+        "enable_schema_ingest": False,
+        "security_tier": 1,         # 1=DDL only, 2=+config snapshots, 3=+live introspect
+    },
+    "extraction": {
+        "enable_documents": True,   # enable document file ingestion (PDF, DOCX, CSV, etc.)
+        "pdf_min_page_chars": 100,  # chars/page below which direct extraction is considered empty
+        "csv_max_rows": 10000,      # cap row count for large CSV/TSV files
+        "max_file_size_kb": 10240,  # 10 MB cap for document files (separate from code files)
     },
 }
 

@@ -41,6 +41,7 @@ def _now_utc() -> str:
 
 
 def _row_to_file(row: sqlite3.Row) -> FileRecord:
+    keys = row.keys()
     return FileRecord(
         file_id=row["file_id"],
         rel_path=row["rel_path"],
@@ -50,10 +51,15 @@ def _row_to_file(row: sqlite3.Row) -> FileRecord:
         last_modified=row["last_modified"],
         last_indexed=row["last_indexed"],
         is_deleted=bool(row["is_deleted"]),
+        source_type=row["source_type"] if "source_type" in keys else "file",
+        extraction_method=row["extraction_method"] if "extraction_method" in keys else None,
+        extraction_quality=row["extraction_quality"] if "extraction_quality" in keys else None,
+        page_count=row["page_count"] if "page_count" in keys else None,
     )
 
 
 def _row_to_chunk(row: sqlite3.Row) -> Chunk:
+    keys = row.keys()
     return Chunk(
         chunk_id=row["chunk_id"],
         file_id=row["file_id"],
@@ -67,6 +73,7 @@ def _row_to_chunk(row: sqlite3.Row) -> Chunk:
         compression_ratio=row["compression_ratio"],
         symbol_name=row["symbol_name"],
         parent_chunk_id=row["parent_chunk_id"],
+        page_number=row["page_number"] if "page_number" in keys else None,
     )
 
 
@@ -147,15 +154,20 @@ class Store:
         sql = """
             INSERT INTO files
                 (rel_path, content_hash, size_bytes, language,
-                 last_modified, last_indexed, is_deleted)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 last_modified, last_indexed, is_deleted,
+                 source_type, extraction_method, extraction_quality, page_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(rel_path) DO UPDATE SET
-                content_hash  = excluded.content_hash,
-                size_bytes    = excluded.size_bytes,
-                language      = excluded.language,
-                last_modified = excluded.last_modified,
-                last_indexed  = excluded.last_indexed,
-                is_deleted    = excluded.is_deleted
+                content_hash       = excluded.content_hash,
+                size_bytes         = excluded.size_bytes,
+                language           = excluded.language,
+                last_modified      = excluded.last_modified,
+                last_indexed       = excluded.last_indexed,
+                is_deleted         = excluded.is_deleted,
+                source_type        = excluded.source_type,
+                extraction_method  = excluded.extraction_method,
+                extraction_quality = excluded.extraction_quality,
+                page_count         = excluded.page_count
         """
         with self._with_write_lock():
             with self.conn:
@@ -169,6 +181,10 @@ class Store:
                         record.last_modified,
                         record.last_indexed,
                         int(record.is_deleted),
+                        record.source_type,
+                        record.extraction_method,
+                        record.extraction_quality,
+                        record.page_count,
                     ),
                 )
                 # For ON CONFLICT DO UPDATE, lastrowid may be 0; fetch the real id.
@@ -227,8 +243,8 @@ class Store:
             INSERT INTO chunks
                 (file_id, content_hash, chunk_type, line_start, line_end,
                  token_count, content, compressed, compression_ratio,
-                 symbol_name, parent_chunk_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 symbol_name, parent_chunk_id, page_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         with self.conn:
             cur = self.conn.execute(
@@ -245,6 +261,7 @@ class Store:
                     chunk.compression_ratio,
                     chunk.symbol_name,
                     chunk.parent_chunk_id,
+                    chunk.page_number,
                 ),
             )
         return cur.lastrowid  # type: ignore[return-value]
@@ -260,8 +277,8 @@ class Store:
             INSERT INTO chunks
                 (file_id, content_hash, chunk_type, line_start, line_end,
                  token_count, content, compressed, compression_ratio,
-                 symbol_name, parent_chunk_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 symbol_name, parent_chunk_id, page_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         ids: list[int] = []
         with self._with_write_lock():
@@ -281,6 +298,7 @@ class Store:
                             chunk.compression_ratio,
                             chunk.symbol_name,
                             chunk.parent_chunk_id,
+                            chunk.page_number,
                         ),
                     )
                     ids.append(cur.lastrowid)  # type: ignore[arg-type]
@@ -974,7 +992,11 @@ class Store:
             self.conn.execute(
                 """
                 DELETE FROM cache_state
-                WHERE chunk_id NOT IN (SELECT chunk_id FROM chunks)
+                WHERE chunk_id NOT IN (
+                    SELECT chunk_id FROM chunks
+                    UNION ALL
+                    SELECT chunk_id FROM doc_chunks
+                )
                 """
             )
 
@@ -986,7 +1008,11 @@ class Store:
             self.conn.execute(
                 """
                 DELETE FROM usage_events
-                WHERE chunk_id NOT IN (SELECT chunk_id FROM chunks)
+                WHERE chunk_id NOT IN (
+                    SELECT chunk_id FROM chunks
+                    UNION ALL
+                    SELECT chunk_id FROM doc_chunks
+                )
                 """
             )
 

@@ -21,7 +21,8 @@ def main() -> None:
     parser.add_argument("-r", "--project-root", default=None, help="Project root (default: cwd)")
     parser.add_argument("--ollama-url", default=None, help="Ollama URL (default: OLLAMA_HOST env or localhost:11434)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print tool calls to stderr")
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    from mnemosyne_ollama import __version__
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args()
 
     if args.query:

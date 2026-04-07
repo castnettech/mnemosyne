@@ -89,6 +89,21 @@ def _open_store_conn(project_root: str):
     return open_store(db_dir)
 
 
+def _check_upgrade_hint(store) -> None:
+    """Show a one-time hint after schema migration, then clear the flag."""
+    pending = store.get_index_metadata("upgrade_hint_pending")
+    if pending is None or pending == "":
+        return
+    import sys
+    from mnemosyne import __version__
+    print(
+        f"[mnemosyne] Upgraded to v{__version__} -- documents now indexed separately.\n"
+        f"[mnemosyne] Use --all to search code + docs, --docs for documents only.",
+        file=sys.stderr,
+    )
+    store.set_index_metadata("upgrade_hint_pending", "")
+
+
 def _load_config(project_root: str):
     from mnemosyne.config import Config
     return Config(root=project_root)
@@ -230,10 +245,17 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
     conn = _open_store_conn(project_root)
     store = _make_store(conn)
+    _check_upgrade_hint(store)
     bloom = _make_bloom(project_root)
     tfidf = _make_tfidf(store, config)
     audit = _make_audit(project_root)
     dense = _make_dense_backend(config, store, project_root)
+
+    from mnemosyne.doc_store import DocStore
+    from mnemosyne.embeddings import get_backend as _get_be
+
+    doc_store = DocStore(conn)
+    doc_tfidf = _get_be(config, store=doc_store)
 
     from mnemosyne.ingest import Ingester
     ingester = Ingester(
@@ -244,6 +266,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         tfidf_backend=tfidf,
         audit=audit,
         dense_backend=dense,
+        doc_store=doc_store,
+        doc_tfidf=doc_tfidf,
     )
 
     paths = args.paths if args.paths else None
@@ -252,12 +276,34 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("[dry-run] Scanning files without writing...")
 
+    def _progress(current, total, rel_path, st):
+        indexed = st["files_indexed"]
+        skipped = st["files_skipped"]
+        failed = st["files_failed"]
+        bar_width = 30
+        filled = int(bar_width * current / max(total, 1))
+        bar = "#" * filled + "-" * (bar_width - filled)
+        pct = 100 * current / max(total, 1)
+        # Truncate long paths
+        display_path = rel_path if len(rel_path) <= 40 else "..." + rel_path[-37:]
+        print(
+            f"\r  [{bar}] {pct:5.1f}% ({current}/{total}) "
+            f"+{indexed} ~{skipped} !{failed}  {display_path:<40}",
+            end="", flush=True,
+        )
+
     try:
-        stats = ingester.ingest(paths=paths, full=args.full, dry_run=args.dry_run)
+        stats = ingester.ingest(
+            paths=paths, full=args.full, dry_run=args.dry_run,
+            progress=_progress,
+        )
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"\nError: {exc}", file=sys.stderr)
         conn.close()
         return 1
+
+    # Clear progress line
+    print("\r" + " " * 100 + "\r", end="")
 
     if not args.dry_run:
         _save_bloom(bloom, project_root)
@@ -274,6 +320,109 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schema_ingest(args: argparse.Namespace) -> int:
+    """Ingest database schema sources into the index."""
+    project_root = _find_project_root()
+    if not _require_mnemosyne_dir(project_root):
+        return 1
+
+    config = _load_config(project_root)
+    conn = _open_store_conn(project_root)
+    store = _make_store(conn)
+    bloom = _make_bloom(project_root)
+    tfidf = _make_tfidf(store, config)
+    audit = _make_audit(project_root)
+    dense = _make_dense_backend(config, store, project_root)
+
+    from mnemosyne.schema_ingest import SchemaIngester
+    ingester = SchemaIngester(
+        project_root=project_root,
+        config=config,
+        store=store,
+        bloom=bloom,
+        tfidf=tfidf,
+        audit=audit,
+        dense=dense,
+    )
+
+    source = getattr(args, "source", None)
+    sqlite_db = getattr(args, "sqlite", None)
+    env_tag = getattr(args, "env", "") or ""
+    fmt = getattr(args, "format", "auto") or "auto"
+
+    try:
+        if sqlite_db:
+            stats = ingester.introspect_sqlite(sqlite_db, env_tag=env_tag)
+            print(f"SQLite DB:      {sqlite_db}")
+            print(f"Environment:    {env_tag or '(none)'}")
+            print(f"Tables found:   {stats.get('tables_found', 0)}")
+            print(f"Chunks added:   {stats['chunks_added']}")
+            print(f"Chunks deduped: {stats['chunks_deduped']}")
+            print(f"Redactions:     {stats['redactions']}")
+        elif source:
+            stats = ingester.ingest_from_file(source, env_tag=env_tag, fmt=fmt)
+            print(f"Source:         {source}")
+            print(f"Environment:    {env_tag or '(none)'}")
+            print(f"Chunks added:   {stats['chunks_added']}")
+            print(f"Chunks deduped: {stats['chunks_deduped']}")
+            print(f"Redactions:     {stats['redactions']}")
+        else:
+            stats = ingester.ingest_from_config()
+            print(f"Sources processed: {stats['sources_processed']}")
+            print(f"Sources failed:    {stats['sources_failed']}")
+            print(f"Chunks added:      {stats['chunks_added']}")
+            print(f"Chunks deduped:    {stats['chunks_deduped']}")
+            print(f"Redactions:        {stats['redactions']}")
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        conn.close()
+        return 1
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        conn.close()
+        return 1
+
+    _save_bloom(bloom, project_root)
+    conn.close()
+    return 0
+
+
+def cmd_schema_stats(args: argparse.Namespace) -> int:
+    """Show statistics about ingested schema sources."""
+    project_root = _find_project_root()
+    if not _require_mnemosyne_dir(project_root):
+        return 1
+
+    config = _load_config(project_root)
+    conn = _open_store_conn(project_root)
+    store = _make_store(conn)
+    bloom = _make_bloom(project_root)
+    tfidf = _make_tfidf(store, config)
+    audit = _make_audit(project_root)
+
+    from mnemosyne.schema_ingest import SchemaIngester
+    ingester = SchemaIngester(
+        project_root=project_root,
+        config=config,
+        store=store,
+        bloom=bloom,
+        tfidf=tfidf,
+        audit=audit,
+    )
+
+    stats = ingester.get_schema_stats()
+    print(f"Schema sources:  {stats['schema_sources']}")
+    print(f"Environments:    {', '.join(stats['environments']) or '(none)'}")
+    print(f"Total chunks:    {stats['total_chunks']}")
+    if stats['chunk_types']:
+        print("Chunk types:")
+        for ctype, count in sorted(stats['chunk_types'].items()):
+            print(f"  {ctype}: {count}")
+
+    conn.close()
+    return 0
+
+
 def cmd_query(args: argparse.Namespace) -> int:
     """Retrieve relevant context chunks for a query string."""
     project_root = _find_project_root()
@@ -283,6 +432,7 @@ def cmd_query(args: argparse.Namespace) -> int:
     config = _load_config(project_root)
     conn = _open_store_conn(project_root)
     store = _make_store(conn)
+    _check_upgrade_hint(store)
     tfidf = _make_tfidf(store, config)
     analytics = _make_analytics(store, config)
     prefetcher = _make_prefetcher(store)
@@ -294,28 +444,48 @@ def cmd_query(args: argparse.Namespace) -> int:
     else:
         analytics.start_session(session_id)
 
-    from mnemosyne.retrieval import RetrievalEngine
-    engine = RetrievalEngine(
-        store=store,
-        tfidf_backend=tfidf,
-        config=config,
-        analytics=analytics,
-        prefetcher=prefetcher,
-        dense_backend=dense,
-    )
-
-    budget = args.budget  # None delegates to config default inside engine.query
-
-    results = engine.query(
-        query_text=args.text,
-        budget=budget,
-        session_id=session_id,
-        use_compression=not args.no_compress,
-    )
-
+    budget = args.budget
     effective_budget = budget if budget is not None else config.retrieval.token_budget
 
     from mnemosyne.formatter import Formatter
+
+    search_docs = getattr(args, "docs", False)
+    search_all = getattr(args, "search_all", False)
+
+    results = []
+
+    # Document partition search
+    if search_docs or search_all:
+        from mnemosyne.doc_store import DocStore
+        from mnemosyne.doc_retrieval import DocRetrievalEngine
+        from mnemosyne.embeddings import get_backend as _get_be
+
+        doc_store = DocStore(conn)
+        doc_tfidf = _get_be(config, store=doc_store)
+        doc_engine = DocRetrievalEngine(
+            doc_store=doc_store, tfidf_backend=doc_tfidf, config=config,
+        )
+        doc_budget = effective_budget // 2 if search_all else effective_budget
+        results.extend(doc_engine.query(query_text=args.text, budget=doc_budget))
+
+    # Code partition search (default, or --all)
+    if not search_docs or search_all:
+        from mnemosyne.retrieval import RetrievalEngine
+        engine = RetrievalEngine(
+            store=store,
+            tfidf_backend=tfidf,
+            config=config,
+            analytics=analytics,
+            prefetcher=prefetcher,
+            dense_backend=dense,
+        )
+        code_budget = effective_budget // 2 if search_all else effective_budget
+        results.extend(engine.query(
+            query_text=args.text,
+            budget=code_budget,
+            session_id=session_id,
+            use_compression=not args.no_compress,
+        ))
 
     if args.format == "json":
         output = Formatter.format_json(results, args.text, effective_budget, session_id)
@@ -972,6 +1142,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Mnemosyne -- LLM Context Compression & Retrieval Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    from mnemosyne import __version__
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
+    )
     parser.add_argument(
         "--log-format",
         choices=["text", "json"],
@@ -1032,6 +1206,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_query.add_argument(
         "--show-scores", action="store_true",
         help="Include per-signal scores in plain-text output headers",
+    )
+    p_query.add_argument(
+        "--docs", action="store_true",
+        help="Search the document partition only (PDFs, DOCX, CSV, logs)",
+    )
+    p_query.add_argument(
+        "--all", action="store_true", dest="search_all",
+        help="Search both code and document partitions",
     )
 
     # stats
@@ -1107,6 +1289,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run in foreground (don't fork to background)",
     )
 
+    # schema-ingest
+    p_schema = sub.add_parser(
+        "schema-ingest",
+        help="Ingest database schema sources (DDL, JSON, YAML)",
+    )
+    p_schema.add_argument(
+        "--source", default=None, metavar="PATH",
+        help="Path to a schema file (DDL, JSON, or YAML). "
+             "If omitted, reads from config.database.schema_sources.",
+    )
+    p_schema.add_argument(
+        "--env", default="", metavar="TAG",
+        help="Environment tag (e.g. prod, dev, staging)",
+    )
+    p_schema.add_argument(
+        "--format", choices=["auto", "ddl", "json", "yaml"], default="auto",
+        help="Source format (default: auto-detect from extension)",
+    )
+    p_schema.add_argument(
+        "--sqlite", default=None, metavar="DB_PATH",
+        help="Introspect a local SQLite database file (must be within project root)",
+    )
+
+    # schema-stats
+    sub.add_parser(
+        "schema-stats",
+        help="Show statistics about ingested schema sources",
+    )
+
     # health
     p_health = sub.add_parser("health", help="Report index health with pass/fail indicators")
     p_health.add_argument(
@@ -1144,6 +1355,8 @@ def main() -> int:
     dispatch = {
         "init": cmd_init,
         "ingest": cmd_ingest,
+        "schema-ingest": cmd_schema_ingest,
+        "schema-stats": cmd_schema_stats,
         "query": cmd_query,
         "stats": cmd_stats,
         "compress": cmd_compress,

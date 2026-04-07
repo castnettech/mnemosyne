@@ -1,0 +1,128 @@
+{
+  "project": "acme-analytics",
+  "root": "__SYNTHETIC__",
+  "questions": [
+    {
+      "id": "D01",
+      "question": "What is the system architecture and how are the analytics components connected?",
+      "category": "doc_retrieval",
+      "ground_truth_files": ["docs/architecture.docx"],
+      "budget": 2000,
+      "difficulty": "medium",
+      "partition": "docs"
+    },
+    {
+      "id": "D02",
+      "question": "Which deployments failed and what were their error durations?",
+      "category": "doc_retrieval",
+      "ground_truth_files": ["docs/deployments.csv"],
+      "budget": 2000,
+      "difficulty": "medium",
+      "partition": "docs"
+    },
+    {
+      "id": "D03",
+      "question": "What error messages and warnings appear in the server logs?",
+      "category": "doc_retrieval",
+      "ground_truth_files": ["docs/runbook.log"],
+      "budget": 2000,
+      "difficulty": "easy",
+      "partition": "docs"
+    },
+    {
+      "id": "D04",
+      "question": "What is the database connection pool size and cache TTL configuration?",
+      "category": "doc_retrieval",
+      "ground_truth_files": ["docs/settings.ini"],
+      "budget": 2000,
+      "difficulty": "easy",
+      "partition": "docs"
+    },
+    {
+      "id": "S01",
+      "question": "What columns and data types does the metrics table have?",
+      "category": "schema_lookup",
+      "ground_truth_files": ["schema/schema.sql"],
+      "budget": 2000,
+      "difficulty": "easy",
+      "partition": "code"
+    },
+    {
+      "id": "S02",
+      "question": "What foreign key relationships exist between the database tables?",
+      "category": "schema_lookup",
+      "ground_truth_files": ["schema/schema.sql"],
+      "budget": 2000,
+      "difficulty": "medium",
+      "partition": "code"
+    },
+    {
+      "id": "X01",
+      "question": "How does the analytics engine execute queries against the metrics database?",
+      "category": "cross_partition",
+      "ground_truth_files": ["src/analytics.py", "src/database.py"],
+      "ground_truth_chunks": [
+        {"file": "src/analytics.py", "symbol_name": "AnalyticsEngine.query"},
+        {"file": "src/database.py", "symbol_name": "ConnectionPool.execute"}
+      ],
+      "budget": 4000,
+      "difficulty": "hard",
+      "partition": "all"
+    },
+    {
+      "id": "X02",
+      "question": "What deployment versions have been released and how does the deployment process work?",
+      "category": "cross_partition",
+      "ground_truth_files": ["docs/deployments.csv", "src/database.py"],
+      "budget": 4000,
+      "difficulty": "hard",
+      "partition": "all"
+    },
+    {
+      "id": "C01",
+      "question": "How does the AnalyticsEngine.query method filter and aggregate metrics?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["src/analytics.py"],
+      "ground_truth_chunks": [
+        {"file": "src/analytics.py", "symbol_name": "AnalyticsEngine.query"}
+      ],
+      "budget": 2000,
+      "difficulty": "easy",
+      "partition": "code"
+    },
+    {
+      "id": "C02",
+      "question": "What data model classes represent metrics and dashboard configurations?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["src/models.py"],
+      "ground_truth_chunks": [
+        {"file": "src/models.py", "symbol_name": "Metric"},
+        {"file": "src/models.py", "symbol_name": "Dashboard"}
+      ],
+      "budget": 2000,
+      "difficulty": "easy",
+      "partition": "code"
+    },
+    {
+      "id": "C03",
+      "question": "How does the ConnectionPool manage database connections and handle timeouts?",
+      "category": "symbol_lookup",
+      "ground_truth_files": ["src/database.py"],
+      "ground_truth_chunks": [
+        {"file": "src/database.py", "symbol_name": "ConnectionPool"}
+      ],
+      "budget": 2000,
+      "difficulty": "medium",
+      "partition": "code"
+    },
+    {
+      "id": "E01",
+      "question": "What monitoring and alerting thresholds are configured?",
+      "category": "doc_retrieval",
+      "ground_truth_files": ["docs/settings.ini"],
+      "budget": 2000,
+      "difficulty": "medium",
+      "partition": "docs"
+    }
+  ]
+}

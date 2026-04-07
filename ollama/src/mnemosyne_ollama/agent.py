@@ -17,6 +17,59 @@ from pathlib import Path
 from mnemosyne_ollama.bridge import McpBridge
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_STATS_RE = re.compile(r"## (\d+) chunks?, ([\d,]+) tokens")
+_FILE_RE = re.compile(r"### file: (.+?) \(lines")
+
+
+def _log_partitions(result_text: str, tool_name: str, out) -> None:
+    """Print partition breakdown to stderr for verbose mode."""
+    if tool_name == "search_docs":
+        m = _STATS_RE.search(result_text)
+        files = _FILE_RE.findall(result_text)
+        chunks = m.group(1) if m else "0"
+        print(f"[mnemosyne-ollama] results: docs: {chunks} chunks", file=out)
+        if files:
+            preview = ", ".join(files[:5])
+            if len(files) > 5:
+                preview += f", ... (+{len(files) - 5})"
+            print(f"[mnemosyne-ollama]   docs: {preview}", file=out)
+        return
+
+    has_code = "## Code Results" in result_text
+    has_docs = "## Document Results" in result_text
+    if not has_code and not has_docs:
+        return
+
+    if has_docs:
+        code_text, doc_text = result_text.split("## Document Results", 1)
+    else:
+        code_text, doc_text = result_text, ""
+
+    parts = []
+    code_files = []
+    doc_files = []
+
+    if has_code:
+        m = _STATS_RE.search(code_text)
+        parts.append(f"code: {m.group(1)} chunks" if m else "code: 0 chunks")
+        code_files = _FILE_RE.findall(code_text)
+
+    if has_docs:
+        m = _STATS_RE.search(doc_text)
+        parts.append(f"docs: {m.group(1)} chunks" if m else "docs: 0 chunks")
+        doc_files = _FILE_RE.findall(doc_text)
+    else:
+        parts.append("docs: none")
+
+    print(f"[mnemosyne-ollama] results: {' | '.join(parts)}", file=out)
+
+    for label, files in [("code", code_files), ("docs", doc_files)]:
+        if files:
+            preview = ", ".join(files[:5])
+            if len(files) > 5:
+                preview += f", ... (+{len(files) - 5})"
+            print(f"[mnemosyne-ollama]   {label}: {preview}", file=out)
+
 
 TOOL_CAPABLE = [
     "llama3.1", "llama3.2", "llama3.3", "llama4",
@@ -202,6 +255,10 @@ async def run(
                     )
 
                 result_text = await bridge.call_tool(name, arguments)
+
+                if verbose and name in ("search", "search_docs"):
+                    _log_partitions(result_text, name, sys.stderr)
+
                 messages.append({
                     "role": "tool",
                     "content": result_text,

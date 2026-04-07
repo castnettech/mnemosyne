@@ -5,6 +5,90 @@ All notable changes to Mnemosyne are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-04-07
+
+### Added
+- Document ingestion (Tier 0) -- extract and index PDFs, DOCX, CSV, and
+  plaintext (.log, .cfg, .ini, .conf, .rst, .xml). PDF requires optional
+  `mnemosyne-engine[pdf]` extra (pypdf, pure Python, BSD). All other
+  extractors use stdlib only. Zero-dep core preserved.
+- Partitioned document index -- documents stored in isolated tables
+  (doc_chunks, doc_chunks_fts, doc_sparse_embeddings, doc_vocabulary) within
+  the same SQLite database. Code retrieval pipeline is completely untouched.
+  New DocStore and DocRetrievalEngine with BM25 + TF-IDF fused via RRF.
+- Schema ingestion pipeline -- DDL-aware SQL chunking (Phase 1), JSON/YAML
+  schema import with environment tagging (Phase 2), SQLite introspection via
+  PRAGMA queries with `--sqlite` CLI flag (Phase 3).
+- CLI `--docs` flag -- search document partition only.
+- CLI `--all` flag -- search both code and document partitions with split budget.
+- CLI `schema-ingest` and `schema-stats` commands for database DDL ingestion.
+- CLI `--version` flag -- reads from package `__version__`.
+- One-time upgrade hint -- on first query or ingest after schema migration,
+  a stderr message reminds users about the new `--all` and `--docs` flags.
+  Fires once, then clears. Fresh installs are not affected.
+- Progress bar on `mnemosyne ingest` with live counter and file path display.
+- Document partition benchmark -- 18-test regression gate covering document
+  retrieval, schema lookup, cross-partition queries, and partition isolation.
+
+### Fixed
+- Document file size limit -- documents were silently skipped using the 512 KB
+  code limit. Now uses extraction.max_file_size_kb (default 10 MB).
+- DocStore vocabulary adapter -- doc_tfidf was created with store=None at all
+  call sites, so doc_vocabulary was never populated. Added save_vocabulary()
+  and load_vocabulary() adapter methods, wired all call sites. Re-ingest
+  required after upgrade to populate document vocabulary.
+
+### Changed
+- .md and .txt files reclassified as documents -- route to the doc partition
+  instead of competing with source code for ranking slots. Use `--all` to
+  search both partitions.
+- Dotfile ignore consolidation -- replaced 12 individual patterns with a
+  single `.*` glob that catches all dotfiles and dotdirs.
+- Schema migration 2->3: files table gains extraction_method,
+  extraction_quality, page_count; chunks table gains page_number.
+- Schema migration 3->4: creates doc_chunks, doc_chunks_fts,
+  doc_sparse_embeddings, doc_vocabulary tables.
+
+### Upgrade notes
+- Run `mnemosyne ingest --full` after upgrading to populate document
+  partitions and vocabulary. Existing code indexes are preserved.
+- Queries that previously found .md files via default `mnemosyne query` must
+  now use `--all` or `--docs`.
+
+---
+
+### mnemosyne-mcp [0.2.0]
+
+### Added
+- `search_docs` tool -- document-only MCP search for LLM agents.
+- `schema_ingest` tool -- import DDL files or introspect SQLite databases.
+- `schema_stats` tool -- report indexed schema sources and statistics.
+- Federated search -- `search` tool now queries both code and document
+  partitions, returns labeled sections ("Code Results" / "Document Results").
+
+### Fixed
+- Per-partition truncation -- the 64KB output cap was applied after
+  concatenation, silently removing document results when code results
+  exceeded the cap. Each partition now gets an independent budget (32KB each
+  when both exist, full 64KB when only one exists).
+- Stats handler tuple unpack -- _handle_stats unpacked 3 values but
+  _get_engine returns 5 since the partition refactor.
+- doc_tfidf store wiring at 2 server.py call sites.
+
+---
+
+### mnemosyne-ollama [0.1.1]
+
+### Added
+- Partition visibility in verbose mode -- `-v` output shows code/docs chunk
+  counts and top file paths per partition for `search` and `search_docs` calls.
+
+### Fixed
+- Version flag now imports from package `__version__` instead of hardcoded
+  string.
+
+---
+
 ## [1.0.5] - 2026-04-04
 
 ### Fixed
@@ -137,6 +221,8 @@ Initial public release on PyPI as `mnemosyne-engine`.
 - Daemon mode with Unix socket RPC
 - Zero runtime dependencies
 
+[1.1.0]: https://github.com/castnettech/mnemosyne/compare/v1.0.5...v1.1.0
+[1.0.5]: https://github.com/castnettech/mnemosyne/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/castnettech/mnemosyne/compare/v1.0.2...v1.0.4
 [1.0.2]: https://github.com/castnettech/mnemosyne/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/castnettech/mnemosyne/compare/v0.4.0...v1.0.0

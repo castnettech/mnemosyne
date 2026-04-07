@@ -19,7 +19,7 @@ import sqlite3
 from pathlib import Path
 from typing import Final
 
-CURRENT_SCHEMA_VERSION: Final[int] = 1
+CURRENT_SCHEMA_VERSION: Final[int] = 4
 
 # ---------------------------------------------------------------------------
 # DDL strings
@@ -41,12 +41,17 @@ _DDL_STATEMENTS: list[str] = [
         language      TEXT,
         last_modified REAL    NOT NULL DEFAULT 0.0,
         last_indexed  TEXT,
-        is_deleted    INTEGER NOT NULL DEFAULT 0  -- BOOL (0/1)
+        is_deleted    INTEGER NOT NULL DEFAULT 0,  -- BOOL (0/1)
+        source_type   TEXT    DEFAULT 'file',      -- 'file' | 'schema' | 'document' | 'config_snapshot'
+        extraction_method  TEXT,                    -- 'direct' | 'ocr_tesseract' | 'ocr_doctr'
+        extraction_quality TEXT,                    -- 'good' | 'poor' | 'failed'
+        page_count    INTEGER                      -- total pages for documents
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_files_rel_path    ON files (rel_path)",
     "CREATE INDEX IF NOT EXISTS idx_files_content_hash ON files (content_hash)",
     "CREATE INDEX IF NOT EXISTS idx_files_is_deleted   ON files (is_deleted)",
+    "CREATE INDEX IF NOT EXISTS idx_files_source_type  ON files (source_type)",
 
     # ------------------------------------------------------------------
     # chunks -- content slices extracted from files
@@ -64,7 +69,8 @@ _DDL_STATEMENTS: list[str] = [
         compressed        TEXT,
         compression_ratio REAL,
         symbol_name       TEXT,
-        parent_chunk_id   INTEGER REFERENCES chunks (chunk_id) ON DELETE SET NULL
+        parent_chunk_id   INTEGER REFERENCES chunks (chunk_id) ON DELETE SET NULL,
+        page_number       INTEGER                  -- 1-based page for documents
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_chunks_file_id      ON chunks (file_id)",
@@ -233,6 +239,91 @@ _DDL_STATEMENTS: list[str] = [
     )
     """,
 
+    # ==================================================================
+    # DOCUMENT PARTITION -- isolated from code partition
+    # ==================================================================
+
+    # ------------------------------------------------------------------
+    # doc_chunks -- document content slices (PDF, DOCX, CSV, plaintext)
+    # ------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS doc_chunks (
+        chunk_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_id           INTEGER NOT NULL REFERENCES files (file_id) ON DELETE CASCADE,
+        content_hash      TEXT    NOT NULL,
+        chunk_type        TEXT    NOT NULL DEFAULT 'paragraph',
+        line_start        INTEGER NOT NULL DEFAULT 0,
+        line_end          INTEGER NOT NULL DEFAULT 0,
+        token_count       INTEGER NOT NULL DEFAULT 0,
+        content           TEXT    NOT NULL DEFAULT '',
+        compressed        TEXT,
+        compression_ratio REAL,
+        symbol_name       TEXT,
+        parent_chunk_id   INTEGER REFERENCES doc_chunks (chunk_id) ON DELETE SET NULL,
+        page_number       INTEGER
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_doc_chunks_file_id      ON doc_chunks (file_id)",
+    "CREATE INDEX IF NOT EXISTS idx_doc_chunks_content_hash ON doc_chunks (content_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_doc_chunks_chunk_type   ON doc_chunks (chunk_type)",
+
+    # ------------------------------------------------------------------
+    # doc_chunks_fts -- FTS5 for document content (separate from code FTS5)
+    # ------------------------------------------------------------------
+    """
+    CREATE VIRTUAL TABLE IF NOT EXISTS doc_chunks_fts
+    USING fts5 (
+        content,
+        tokenize = 'porter unicode61',
+        content='doc_chunks',
+        content_rowid='chunk_id'
+    )
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS doc_chunks_fts_ai
+    AFTER INSERT ON doc_chunks BEGIN
+        INSERT INTO doc_chunks_fts (rowid, content) VALUES (new.chunk_id, new.content);
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS doc_chunks_fts_ad
+    AFTER DELETE ON doc_chunks BEGIN
+        INSERT INTO doc_chunks_fts (doc_chunks_fts, rowid, content)
+        VALUES ('delete', old.chunk_id, old.content);
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS doc_chunks_fts_au
+    AFTER UPDATE ON doc_chunks BEGIN
+        INSERT INTO doc_chunks_fts (doc_chunks_fts, rowid, content)
+        VALUES ('delete', old.chunk_id, old.content);
+        INSERT INTO doc_chunks_fts (rowid, content) VALUES (new.chunk_id, new.content);
+    END
+    """,
+
+    # ------------------------------------------------------------------
+    # doc_sparse_embeddings -- TF-IDF for documents (isolated IDF)
+    # ------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS doc_sparse_embeddings (
+        chunk_id      INTEGER PRIMARY KEY REFERENCES doc_chunks (chunk_id) ON DELETE CASCADE,
+        term_weights  TEXT    NOT NULL DEFAULT '{}',
+        updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+
+    # ------------------------------------------------------------------
+    # doc_vocabulary -- document term statistics (isolated from code IDF)
+    # ------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS doc_vocabulary (
+        term       TEXT    PRIMARY KEY,
+        doc_freq   INTEGER NOT NULL DEFAULT 1,
+        idf        REAL    NOT NULL DEFAULT 0.0,
+        total_docs INTEGER NOT NULL DEFAULT 1
+    )
+    """,
+
     # ------------------------------------------------------------------
     # schema_version -- single-row version tracker for migrations
     # ------------------------------------------------------------------
@@ -251,8 +342,68 @@ _DDL_STATEMENTS: list[str] = [
 # Migrations are applied in ascending from_version order.
 
 _MIGRATIONS: list[tuple[int, int, list[str]]] = [
-    # Example future migration:
-    # (1, 2, ["ALTER TABLE chunks ADD COLUMN extra_field TEXT"]),
+    (1, 2, [
+        "ALTER TABLE files ADD COLUMN source_type TEXT DEFAULT 'file'",
+        "CREATE INDEX IF NOT EXISTS idx_files_source_type ON files (source_type)",
+    ]),
+    (2, 3, [
+        "ALTER TABLE files ADD COLUMN extraction_method TEXT",
+        "ALTER TABLE files ADD COLUMN extraction_quality TEXT",
+        "ALTER TABLE files ADD COLUMN page_count INTEGER",
+        "ALTER TABLE chunks ADD COLUMN page_number INTEGER",
+    ]),
+    (3, 4, [
+        # Document partition tables
+        """CREATE TABLE IF NOT EXISTS doc_chunks (
+            chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL REFERENCES files (file_id) ON DELETE CASCADE,
+            content_hash TEXT NOT NULL,
+            chunk_type TEXT NOT NULL DEFAULT 'paragraph',
+            line_start INTEGER NOT NULL DEFAULT 0,
+            line_end INTEGER NOT NULL DEFAULT 0,
+            token_count INTEGER NOT NULL DEFAULT 0,
+            content TEXT NOT NULL DEFAULT '',
+            compressed TEXT,
+            compression_ratio REAL,
+            symbol_name TEXT,
+            parent_chunk_id INTEGER REFERENCES doc_chunks (chunk_id) ON DELETE SET NULL,
+            page_number INTEGER
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_doc_chunks_file_id ON doc_chunks (file_id)",
+        "CREATE INDEX IF NOT EXISTS idx_doc_chunks_content_hash ON doc_chunks (content_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_doc_chunks_chunk_type ON doc_chunks (chunk_type)",
+        # FTS5 for documents
+        """CREATE VIRTUAL TABLE IF NOT EXISTS doc_chunks_fts
+        USING fts5 (content, tokenize = 'porter unicode61',
+        content='doc_chunks', content_rowid='chunk_id')""",
+        """CREATE TRIGGER IF NOT EXISTS doc_chunks_fts_ai
+        AFTER INSERT ON doc_chunks BEGIN
+            INSERT INTO doc_chunks_fts (rowid, content) VALUES (new.chunk_id, new.content);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS doc_chunks_fts_ad
+        AFTER DELETE ON doc_chunks BEGIN
+            INSERT INTO doc_chunks_fts (doc_chunks_fts, rowid, content)
+            VALUES ('delete', old.chunk_id, old.content);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS doc_chunks_fts_au
+        AFTER UPDATE ON doc_chunks BEGIN
+            INSERT INTO doc_chunks_fts (doc_chunks_fts, rowid, content)
+            VALUES ('delete', old.chunk_id, old.content);
+            INSERT INTO doc_chunks_fts (rowid, content) VALUES (new.chunk_id, new.content);
+        END""",
+        # Document sparse embeddings + vocabulary
+        """CREATE TABLE IF NOT EXISTS doc_sparse_embeddings (
+            chunk_id INTEGER PRIMARY KEY REFERENCES doc_chunks (chunk_id) ON DELETE CASCADE,
+            term_weights TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS doc_vocabulary (
+            term TEXT PRIMARY KEY,
+            doc_freq INTEGER NOT NULL DEFAULT 1,
+            idf REAL NOT NULL DEFAULT 0.0,
+            total_docs INTEGER NOT NULL DEFAULT 1
+        )""",
+    ]),
 ]
 
 
@@ -387,6 +538,20 @@ def migrate(conn: sqlite3.Connection) -> None:
         except sqlite3.Error:
             conn.rollback()
             raise
+
+    # If any migration was applied, flag for one-time CLI upgrade hint.
+    if current_version > row[0]:
+        try:
+            conn.execute(
+                "INSERT INTO index_metadata (key, value, updated_at) "
+                "VALUES ('upgrade_hint_pending', ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                "updated_at=excluded.updated_at",
+                (str(current_version),),
+            )
+            conn.commit()
+        except sqlite3.Error:
+            pass  # Non-critical -- hint is cosmetic
 
 
 def open_store(db_dir: str | Path) -> sqlite3.Connection:
