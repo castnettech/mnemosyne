@@ -84,7 +84,7 @@ def _get_engine(project_root: str) -> tuple:
 
     # Document partition -- same connection, separate tables
     doc_store = DocStore(conn)
-    doc_tfidf = get_backend(config, store=None)
+    doc_tfidf = get_backend(config, store=doc_store)
     doc_engine = DocRetrievalEngine(
         doc_store=doc_store,
         tfidf_backend=doc_tfidf,
@@ -354,19 +354,28 @@ async def _handle_search(arguments: dict) -> list[TextContent]:
 
     from mnemosyne.formatter import Formatter
 
+    max_chars = 65_536
+    has_code = bool(code_results)
+    has_docs = bool(doc_results)
+
+    if has_code and has_docs:
+        per_partition = max_chars // 2
+    else:
+        per_partition = max_chars
+
     parts: list[str] = []
-    if code_results:
-        parts.append("## Code Results")
-        parts.append(Formatter.format_plain(code_results, query, budget, session_id=None))
-    if doc_results:
-        parts.append("## Document Results")
-        parts.append(Formatter.format_plain(doc_results, query, budget // 2, session_id=None))
+    if has_code:
+        code_text = Formatter.format_plain(code_results, query, budget, session_id=None)
+        if len(code_text) > per_partition:
+            code_text = code_text[:per_partition] + "\n... [code results truncated]"
+        parts.append("## Code Results\n\n" + code_text)
+    if has_docs:
+        doc_text = Formatter.format_plain(doc_results, query, budget // 2, session_id=None)
+        if len(doc_text) > per_partition:
+            doc_text = doc_text[:per_partition] + "\n... [document results truncated]"
+        parts.append("## Document Results\n\n" + doc_text)
 
     output = "\n\n".join(parts)
-
-    max_chars = 65_536
-    if len(output) > max_chars:
-        output = output[:max_chars] + "\n... [truncated to 64KB]"
 
     return [TextContent(type="text", text=output)]
 
@@ -433,7 +442,7 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
     audit = AuditLog(str(mnemosyne_dir / "audit.jsonl"))
 
     doc_store = DocStore(conn)
-    doc_tfidf = get_backend(config, store=None)
+    doc_tfidf = get_backend(config, store=doc_store)
 
     ingester = Ingester(
         project_root=project_root,

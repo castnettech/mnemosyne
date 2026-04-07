@@ -184,6 +184,48 @@ class DocStore:
         ).fetchall()
         return {r[0]: (r[1], float(r[2]), r[3]) for r in rows}
 
+    # ------------------------------------------------------------------
+    # Vocabulary adapter (called by TFIDFBackend)
+    # ------------------------------------------------------------------
+
+    def save_vocabulary(self, payload: dict) -> None:
+        """Persist a TF-IDF vocabulary payload to the doc_vocabulary table.
+
+        *payload* has keys ``"vocabulary"`` (term->doc_freq),
+        ``"idf"`` (term->idf_weight), and ``"total_docs"`` (int).
+        Translates to the 3-tuple format expected by
+        :meth:`update_vocabulary`.
+        """
+        vocab: dict[str, int] = payload.get("vocabulary", {})
+        idf_map: dict[str, float] = payload.get("idf", {})
+        total_docs: int = payload.get("total_docs", 0)
+        if not vocab:
+            return
+        translated = {
+            term: (df, idf_map.get(term, 0.0), total_docs)
+            for term, df in vocab.items()
+        }
+        self.update_vocabulary(translated)
+
+    def load_vocabulary(self) -> dict | None:
+        """Load the persisted TF-IDF vocabulary from the doc_vocabulary table.
+
+        Returns a dict with keys ``"vocabulary"`` (term->doc_freq),
+        ``"idf"`` (term->idf_weight), and ``"total_docs"`` (int),
+        or ``None`` if the table is empty.
+        """
+        raw = self.get_vocabulary()
+        if not raw:
+            return None
+        vocabulary: dict[str, int] = {}
+        idf: dict[str, float] = {}
+        total_docs: int = 0
+        for term, (df, idf_val, td) in raw.items():
+            vocabulary[term] = df
+            idf[term] = idf_val
+            total_docs = td
+        return {"vocabulary": vocabulary, "idf": idf, "total_docs": total_docs}
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers

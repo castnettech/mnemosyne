@@ -239,7 +239,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     from mnemosyne.embeddings import get_backend as _get_be
 
     doc_store = DocStore(conn)
-    doc_tfidf = _get_be(config, store=None)
+    doc_tfidf = _get_be(config, store=doc_store)
 
     from mnemosyne.ingest import Ingester
     ingester = Ingester(
@@ -444,7 +444,7 @@ def cmd_query(args: argparse.Namespace) -> int:
         from mnemosyne.embeddings import get_backend as _get_be
 
         doc_store = DocStore(conn)
-        doc_tfidf = _get_be(config, store=None)
+        doc_tfidf = _get_be(config, store=doc_store)
         doc_engine = DocRetrievalEngine(
             doc_store=doc_store, tfidf_backend=doc_tfidf, config=config,
         )
