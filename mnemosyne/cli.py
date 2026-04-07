@@ -1125,6 +1125,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Mnemosyne -- LLM Context Compression & Retrieval Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    from mnemosyne import __version__
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
+    )
     parser.add_argument(
         "--log-format",
         choices=["text", "json"],

@@ -485,7 +485,7 @@ async def _handle_index(arguments: dict) -> list[TextContent]:
 
 async def _handle_stats(arguments: dict) -> list[TextContent]:
     project_root = _resolve_project_root(arguments.get("project_root"))
-    _, store, config = _get_engine(project_root)
+    _, store, config, _, doc_store = _get_engine(project_root)
 
     file_count = store.count_files()
     chunk_count = store.count_chunks()
