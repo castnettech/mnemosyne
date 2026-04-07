@@ -77,6 +77,7 @@ class Ingester:
         paths: list[str] | None = None,
         full: bool = False,
         dry_run: bool = False,
+        progress=None,
     ) -> dict:
         """
         Index files in the project.
@@ -128,8 +129,12 @@ class Ingester:
                     self.store.delete_chunks_for_file(rec.file_id)
                     self.store.mark_deleted(rec.file_id)
 
-        for abs_path in file_list:
+        total = len(file_list)
+        for i, abs_path in enumerate(file_list):
             rel_path = os.path.relpath(abs_path, self.root).replace(os.sep, "/")
+
+            if progress is not None:
+                progress(i + 1, total, rel_path, stats)
 
             try:
                 if not self._needs_indexing(abs_path, rel_path, full):
@@ -147,7 +152,6 @@ class Ingester:
 
             except Exception as exc:
                 stats["files_failed"] += 1
-                # Best-effort audit of the failure
                 try:
                     self.audit.log(
                         "ingest_error",

@@ -260,12 +260,34 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("[dry-run] Scanning files without writing...")
 
+    def _progress(current, total, rel_path, st):
+        indexed = st["files_indexed"]
+        skipped = st["files_skipped"]
+        failed = st["files_failed"]
+        bar_width = 30
+        filled = int(bar_width * current / max(total, 1))
+        bar = "#" * filled + "-" * (bar_width - filled)
+        pct = 100 * current / max(total, 1)
+        # Truncate long paths
+        display_path = rel_path if len(rel_path) <= 40 else "..." + rel_path[-37:]
+        print(
+            f"\r  [{bar}] {pct:5.1f}% ({current}/{total}) "
+            f"+{indexed} ~{skipped} !{failed}  {display_path:<40}",
+            end="", flush=True,
+        )
+
     try:
-        stats = ingester.ingest(paths=paths, full=args.full, dry_run=args.dry_run)
+        stats = ingester.ingest(
+            paths=paths, full=args.full, dry_run=args.dry_run,
+            progress=_progress,
+        )
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"\nError: {exc}", file=sys.stderr)
         conn.close()
         return 1
+
+    # Clear progress line
+    print("\r" + " " * 100 + "\r", end="")
 
     if not args.dry_run:
         _save_bloom(bloom, project_root)
