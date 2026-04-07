@@ -22,6 +22,7 @@ from mnemosyne.extractors.base import (
 )
 
 _EXTENSIONS: frozenset[str] = frozenset({
+    ".md", ".txt",
     ".log", ".cfg", ".ini", ".conf", ".env.example",
     ".rst", ".textile", ".adoc", ".org",
     ".xml", ".svg",

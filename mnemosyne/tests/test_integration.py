@@ -199,6 +199,11 @@ class TestEndToEnd(unittest.TestCase):
         os.makedirs(os.path.dirname(audit_path), exist_ok=True)
         self.audit = AuditLog(audit_path)
 
+        # Doc partition
+        from mnemosyne.doc_store import DocStore
+        self.doc_store = DocStore(self.conn)
+        self.doc_tfidf = TFIDFBackend(self.cfg, store=None)
+
         # Ingester
         from mnemosyne.ingest import Ingester
         self.ingester = Ingester(
@@ -208,6 +213,8 @@ class TestEndToEnd(unittest.TestCase):
             bloom=self.bloom,
             tfidf_backend=self.tfidf,
             audit=self.audit,
+            doc_store=self.doc_store,
+            doc_tfidf=self.doc_tfidf,
         )
 
     def tearDown(self):
@@ -238,7 +245,8 @@ class TestEndToEnd(unittest.TestCase):
         records = self.store.list_files()
         languages = {r.language for r in records}
         self.assertIn("python", languages)
-        self.assertIn("markdown", languages)
+        # Markdown is now routed to the doc partition with language="document"
+        self.assertIn("document", languages)
 
     def test_ingest_stats_have_expected_keys(self):
         stats = self.ingester.ingest()
@@ -354,7 +362,8 @@ class TestEndToEnd(unittest.TestCase):
         self.ingester.ingest()
         lang_counts = self.store.language_counts()
         self.assertIn("python", lang_counts)
-        self.assertIn("markdown", lang_counts)
+        # Markdown now classified as "document" in the shared files table
+        self.assertIn("document", lang_counts)
 
     # ------------------------------------------------------------------
     # Re-ingest idempotency

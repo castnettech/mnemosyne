@@ -176,6 +176,7 @@ def is_document(path: str | Path) -> bool:
 _DOCUMENT_EXTENSIONS: frozenset[str] = frozenset({
     ".pdf", ".docx",
     ".csv", ".tsv",
+    ".md", ".txt",
     ".log", ".cfg", ".ini", ".conf",
     ".rst", ".xml", ".svg",
     ".adoc", ".org", ".textile",
