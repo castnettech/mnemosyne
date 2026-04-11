@@ -155,7 +155,7 @@ def _ollama_chat(
         "messages": messages,
         "tools": tools if tools else None,
         "stream": False,
-        "options": {"num_ctx": 32768},
+        "options": {"num_ctx": 32768, "num_predict": 4096},
     }
     try:
         return _post(f"{base_url}/api/chat", payload)

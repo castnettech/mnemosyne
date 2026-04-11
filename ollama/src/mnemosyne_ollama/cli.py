@@ -55,6 +55,57 @@ def _run_single(args: argparse.Namespace) -> None:
     print(result.response)
 
 
+def _read_multiline() -> str:
+    """
+    Read one logical message from stdin.
+
+    Single-line mode (default):
+        Type your question and press Enter -- submits immediately.
+
+    Multi-line mode:
+        Type \"\"\" and press Enter to open a multi-line block.
+        Type or paste freely (blank lines preserved).
+        Type \"\"\" and press Enter to close and submit.
+
+    Bracketed paste (ESC[?2004h) is enabled on startup so terminals that
+    support it deliver pasted text as one atomic block through input().
+
+    Raises EOFError when stdin closes (Ctrl+D).
+    """
+    try:
+        line = input("> ")
+    except EOFError:
+        raise
+
+    # Strip bracketed-paste escape wrappers that some terminals leave in the
+    # string when bracketed paste mode is active but readline strips them late.
+    line = line.replace("\x1b[200~", "").replace("\x1b[201~", "")
+
+    if line.strip() == '"""':
+        return _read_multiline_block()
+
+    return line
+
+
+def _read_multiline_block() -> str:
+    """
+    Read lines until a closing \"\"\" sentinel, then return the joined block.
+    Called after the opening \"\"\" has already been consumed.
+    """
+    lines: list[str] = []
+    print('  (multi-line -- type """ to send)')
+    while True:
+        try:
+            line = input("... ")
+        except EOFError:
+            break
+        line = line.replace("\x1b[200~", "").replace("\x1b[201~", "")
+        if line.strip() == '"""':
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _run_interactive(args: argparse.Namespace) -> None:
     from mnemosyne_ollama.bridge import McpBridge
     from mnemosyne_ollama.agent import (
@@ -73,9 +124,23 @@ def _run_interactive(args: argparse.Namespace) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    # Enable readline history/editing where available (stdlib, no-op on Windows
+    # without pyreadline3).
+    try:
+        import readline as _rl  # noqa: F401
+    except ImportError:
+        pass
+
+    # Enable bracketed paste mode -- terminals that support it will deliver
+    # pasted content as one atomic block, preventing per-line submissions.
+    # Disabled on close via the deferred reset sequence.
+    sys.stdout.write("\x1b[?2004h")
+    sys.stdout.flush()
+
     print(f"mnemosyne-ollama interactive ({model})")
     print(f"Project: {root}")
-    print("Type your question. Ctrl+C to exit.\n")
+    print("Type your question and press Enter. Use triple-quote for multi-line input.")
+    print("Ctrl+C or Ctrl+D to exit.\n")
 
     async def _session():
         bridge = McpBridge()
@@ -96,7 +161,7 @@ def _run_interactive(args: argparse.Namespace) -> None:
 
             while True:
                 try:
-                    query = input("> ")
+                    query = _read_multiline()
                 except EOFError:
                     break
                 if not query.strip():
@@ -140,3 +205,7 @@ def _run_interactive(args: argparse.Namespace) -> None:
         asyncio.run(_session())
     except KeyboardInterrupt:
         print()
+    finally:
+        # Disable bracketed paste mode on exit.
+        sys.stdout.write("\x1b[?2004l")
+        sys.stdout.flush()
