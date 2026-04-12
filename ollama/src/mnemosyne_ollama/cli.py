@@ -143,37 +143,18 @@ def _run_interactive(args: argparse.Namespace) -> None:
     print("Ctrl+C or Ctrl+D to exit.\n")
 
     async def _session():
-        # Optional runtime integration point.
-        _capture = None
-        _conv_id = None
-        try:
-            from mnemosyne_capture.capture import Capture
-            _capture = Capture(Path(root))
-            await _capture.start()
-            _conv_id = _capture.new_conversation(source="ollama_interactive", model_id=model)
-        except ImportError:
-            pass
-        except Exception:
-            _capture = None
-
         bridge = McpBridge()
         try:
             await bridge.start()
         except FileNotFoundError:
             print("Error: mnemosyne-mcp not found. Install: pip install mnemosyne-mcp", file=sys.stderr)
-            # Session state hook.
-            if _capture is not None:
-                try:
-                    await _capture.stop()
-                except Exception:
-                    pass
             return
 
         try:
             tools = bridge.get_tools_for_ollama()
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT.format(
-                    project_root=root, budget=args.budget, model=model
+                    project_root=root, budget=args.budget
                 )},
             ]
             loop = asyncio.get_running_loop()
@@ -185,16 +166,6 @@ def _run_interactive(args: argparse.Namespace) -> None:
                     break
                 if not query.strip():
                     continue
-
-                # Turn record hook.
-                if _capture is not None and _conv_id:
-                    try:
-                        _capture.record(
-                            _conv_id, author="user", content=query,
-                            capture_source="ollama_interactive",
-                        )
-                    except Exception:
-                        pass
 
                 messages.append({"role": "user", "content": query})
 
@@ -210,27 +181,8 @@ def _run_interactive(args: argparse.Namespace) -> None:
                     if not tool_calls:
                         if content:
                             print(f"\n{content}\n")
-                        # Turn record hook.
-                        if _capture is not None and _conv_id and content:
-                            try:
-                                _capture.record(
-                                    _conv_id, author="assistant", content=content,
-                                    capture_source="ollama_interactive",
-                                )
-                            except Exception:
-                                pass
                         messages.append({"role": "assistant", "content": content})
                         break
-
-                    # Turn record hook.
-                    if _capture is not None and _conv_id and content:
-                        try:
-                            _capture.record(
-                                _conv_id, author="assistant", content=content,
-                                capture_source="ollama_interactive",
-                            )
-                        except Exception:
-                            pass
 
                     messages.append(msg)
                     for tc in tool_calls:
@@ -245,33 +197,9 @@ def _run_interactive(args: argparse.Namespace) -> None:
                         if args.verbose:
                             print(f"  [tool] {name}({json.dumps(arguments, indent=None)})", file=sys.stderr)
                         result_text = await bridge.call_tool(name, arguments)
-                        # Turn record hook.
-                        if _capture is not None and _conv_id:
-                            try:
-                                _capture.record(
-                                    _conv_id, author="tool", content=result_text,
-                                    capture_source="ollama_interactive",
-                                )
-                            except Exception:
-                                pass
                         messages.append({"role": "tool", "content": result_text})
         finally:
             await bridge.stop()
-            # Optional session finalization hook.
-            if _capture is not None and _conv_id:
-                try:
-                    _capture.store.set_conversation_state(_conv_id, "closed")
-                    from mnemosyne_capture.summarizer_l3 import summarize_conversation
-                    print("[mnemosyne-ollama] finalizing session...", file=sys.stderr)
-                    summarize_conversation(_capture.store, _conv_id, model=model)
-                except Exception:
-                    pass
-            # Session state hook.
-            if _capture is not None:
-                try:
-                    await _capture.stop()
-                except Exception:
-                    pass
 
     try:
         asyncio.run(_session())

@@ -38,40 +38,6 @@ from mcp.types import TextContent, Tool
 
 _engine_cache: dict[str, object] = {}
 
-# ---------------------------------------------------------------------------
-# Optional runtime integration point.
-# ---------------------------------------------------------------------------
-
-_capture = None
-_mcp_conv_id: str | None = None
-
-
-async def _start_capture() -> None:
-    """Optional session state hook."""
-    global _capture, _mcp_conv_id
-    try:
-        from mnemosyne_capture.capture import Capture
-        _capture = Capture(Path.cwd())
-        await _capture.start()
-        _mcp_conv_id = _capture.new_conversation(source="mcp", model_id="unknown")
-    except ImportError:
-        _capture = None
-        _mcp_conv_id = None
-    except Exception:
-        _capture = None
-        _mcp_conv_id = None
-
-
-async def _stop_capture() -> None:
-    """Optional session state hook."""
-    global _capture
-    if _capture is not None:
-        try:
-            await _capture.stop()
-        except Exception:
-            pass
-        _capture = None
-
 
 def _get_engine(project_root: str) -> tuple:
     """Return (RetrievalEngine, Store, Config, DocRetrievalEngine, DocStore) for project root.
@@ -331,51 +297,23 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    import json as _json
-
-    # Turn record hook.
-    if _capture is not None and _mcp_conv_id:
-        try:
-            _capture.record(
-                _mcp_conv_id,
-                author="assistant",
-                content=f"[tool:{name}] {_json.dumps(arguments, separators=(',', ':'))}",
-                capture_source="mcp_middleware",
-            )
-        except Exception:
-            pass
-
-    result: list[TextContent] = []
     try:
         if name == "search":
-            result = await _handle_search(arguments)
+            return await _handle_search(arguments)
         elif name == "search_docs":
-            result = await _handle_search_docs(arguments)
+            return await _handle_search_docs(arguments)
         elif name == "index":
-            result = await _handle_index(arguments)
+            return await _handle_index(arguments)
         elif name == "stats":
-            result = await _handle_stats(arguments)
+            return await _handle_stats(arguments)
         elif name == "schema_ingest":
-            result = await _handle_schema_ingest(arguments)
+            return await _handle_schema_ingest(arguments)
         elif name == "schema_stats":
-            result = await _handle_schema_stats(arguments)
+            return await _handle_schema_stats(arguments)
         else:
-            result = [TextContent(type="text", text=f"Unknown tool: {name}")]
+            return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
-        result = [TextContent(type="text", text=f"Error: {type(exc).__name__}: {exc}")]
-    finally:
-        # Turn record hook.
-        if _capture is not None and _mcp_conv_id and result:
-            try:
-                _capture.record(
-                    _mcp_conv_id,
-                    author="tool",
-                    content=result[0].text,
-                    capture_source="mcp_middleware",
-                )
-            except Exception:
-                pass
-    return result
+        return [TextContent(type="text", text=f"Error: {type(exc).__name__}: {exc}")]
 
 
 async def _handle_search(arguments: dict) -> list[TextContent]:
@@ -700,16 +638,12 @@ def run():
 
 async def main() -> None:
     """Run the Mnemosyne MCP server over stdio."""
-    await _start_capture()
-    try:
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options(),
-            )
-    finally:
-        await _stop_capture()
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(),
+        )
 
 
 if __name__ == "__main__":
