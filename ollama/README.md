@@ -51,30 +51,14 @@ mnemosyne-ollama "explain the auth flow" -v   # verbose: shows tool calls
 
 ### Interactive mode
 
-```console
-$ mnemosyne-ollama --model gemma4:latest -v
-mnemosyne-ollama interactive (gemma4:latest)
-Project: /your/project
-Type your question and press Enter. Use triple-quote for multi-line input.
-Ctrl+C or Ctrl+D to exit.
-
+```bash
+mnemosyne-ollama
 > how does the auth middleware work?
-
-[model searches, responds with code citations]
-
+[searches, responds with code citations]
 > what about rate limiting?
-
-[follows up using conversation context]
-
+[follows up with conversation context]
 > ^C
 ```
-
-**Multi-line input:** type `"""` on a line by itself and press Enter to open
-a block. Paste or type freely; blank lines are preserved. Close the block with
-another `"""` on a line by itself. Bracketed paste mode is enabled automatically
-so terminals that support it deliver paste content as one atomic block.
-
-**Exit:** Ctrl+C or Ctrl+D at the `>` prompt.
 
 ### Python library
 
