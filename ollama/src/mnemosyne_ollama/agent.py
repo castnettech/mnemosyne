@@ -89,7 +89,8 @@ Rules:
 - Cite file paths and line numbers from results.
 - Be concise. Quote relevant code, don't paraphrase.
 - Project root: {project_root}
-- Default search budget: {budget}"""
+- Default search budget: {budget}
+- Current session model: {model}"""
 
 
 @dataclass
@@ -202,10 +203,29 @@ async def run(
         if verbose:
             print(f"[mnemosyne-ollama] auto-detected model: {model}", file=sys.stderr)
 
+    # Optional runtime integration point.
+    _capture = None
+    _conv_id = None
+    try:
+        from mnemosyne_capture.capture import Capture
+        _capture = Capture(Path(root))
+        await _capture.start()
+        _conv_id = _capture.new_conversation(source="ollama_agent", model_id=model)
+    except ImportError:
+        pass
+    except Exception:
+        _capture = None
+
     bridge = McpBridge()
     try:
         await bridge.start()
     except FileNotFoundError:
+        # Session state hook.
+        if _capture is not None:
+            try:
+                await _capture.stop()
+            except Exception:
+                pass
         return AgentResult(
             response="",
             error="mnemosyne-mcp not found on PATH. Install: pip install mnemosyne-mcp",
@@ -215,10 +235,39 @@ async def run(
         tools = bridge.get_tools_for_ollama()
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT.format(
-                project_root=root, budget=budget
+                project_root=root, budget=budget, model=model
             )},
             {"role": "user", "content": query},
         ]
+
+        # Turn record hook.
+        if _capture is not None and _conv_id:
+            try:
+                _capture.record(
+                    _conv_id, author="user", content=query,
+                    capture_source="ollama_agent",
+                )
+            except Exception:
+                pass
+
+        # Optional context pre-load.
+        _ctx_cache = None
+        if _capture is not None and _conv_id:
+            try:
+                from mnemosyne_capture.auto_inject import ContextCache, BUDGET_ONE_SHOT
+                from mnemosyne_capture.engine import ConversationRetrievalEngine
+                _ctx_engine = ConversationRetrievalEngine(_capture.store, tfidf=None)
+                _ctx_cache = ContextCache(_ctx_engine)
+                _ctx_block = _ctx_cache.get_context_block(
+                    _conv_id, query, budget=BUDGET_ONE_SHOT
+                )
+                if _ctx_block:
+                    messages[0] = {
+                        **messages[0],
+                        "content": messages[0]["content"] + "\n\n" + _ctx_block,
+                    }
+            except Exception:
+                _ctx_cache = None
 
         loop = asyncio.get_running_loop()
         max_steps = 10
@@ -233,7 +282,40 @@ async def run(
             tool_calls = msg.get("tool_calls") or []
 
             if not tool_calls:
+                # Turn record hook.
+                if _capture is not None and _conv_id and content:
+                    try:
+                        _capture.record(
+                            _conv_id, author="assistant", content=content,
+                            capture_source="ollama_agent",
+                        )
+                    except Exception:
+                        pass
+                # Optional session finalization hook.
+                if _capture is not None and _conv_id:
+                    try:
+                        _capture.store.set_conversation_state(_conv_id, "closed")
+                        from mnemosyne_capture.summarizer_l3 import summarize_conversation
+                        summarize_conversation(_capture.store, _conv_id, model=model)
+                    except Exception:
+                        pass
+                # Optional prefetch hook.
+                if _ctx_cache is not None and _conv_id and content:
+                    try:
+                        _ctx_cache.prefetch(_conv_id, content)
+                    except Exception:
+                        pass
                 return AgentResult(response=content)
+
+            # Turn record hook.
+            if _capture is not None and _conv_id and content:
+                try:
+                    _capture.record(
+                        _conv_id, author="assistant", content=content,
+                        capture_source="ollama_agent",
+                    )
+                except Exception:
+                    pass
 
             # Append assistant message with tool calls
             messages.append(msg)
@@ -264,8 +346,24 @@ async def run(
                     "content": result_text,
                 })
 
+                # Turn record hook.
+                if _capture is not None and _conv_id:
+                    try:
+                        _capture.record(
+                            _conv_id, author="tool", content=result_text,
+                            capture_source="ollama_agent",
+                        )
+                    except Exception:
+                        pass
+
         return AgentResult(
             response="", error="Reached max tool-call iterations without a final answer."
         )
     finally:
         await bridge.stop()
+        # Session state hook.
+        if _capture is not None:
+            try:
+                await _capture.stop()
+            except Exception:
+                pass
