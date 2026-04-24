@@ -185,6 +185,122 @@ class DocStore:
         return {r[0]: (r[1], float(r[2]), r[3]) for r in rows}
 
     # ------------------------------------------------------------------
+    # Dense embeddings (hashed_tfidf_v1, int8 BLOB)
+    # ------------------------------------------------------------------
+
+    def insert_dense_embedding(
+        self,
+        chunk_id: int,
+        *,
+        vector_bytes: bytes,
+        model_id: str = "hashed_tfidf_v1",
+        model_version: int = 1,
+        dim: int = 128,
+        quantization: str = "int8",
+    ) -> None:
+        """Insert or replace a dense vector for a doc chunk.
+
+        Uses the composite PK (chunk_id, model_id, model_version) so a
+        newer model can coexist with the current one.  Retrieval always
+        picks ``ORDER BY model_version DESC``.
+        """
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO doc_embeddings "
+                "(chunk_id, model_id, model_version, dim, quantization, "
+                " vector, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+                (chunk_id, model_id, model_version, dim, quantization,
+                 vector_bytes),
+            )
+
+    def get_dense_embedding(
+        self, chunk_id: int, model_id: str = "hashed_tfidf_v1",
+    ) -> tuple[bytes, int] | None:
+        """Return ``(vector_bytes, dim)`` for *chunk_id* at the highest
+        model_version for the given *model_id*, or ``None`` if missing.
+        """
+        row = self.conn.execute(
+            "SELECT vector, dim FROM doc_embeddings "
+            "WHERE chunk_id = ? AND model_id = ? "
+            "ORDER BY model_version DESC LIMIT 1",
+            (chunk_id, model_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return bytes(row[0]), int(row[1])
+
+    def get_dense_embeddings_batch(
+        self,
+        chunk_ids: list[int] | None = None,
+        model_id: str = "hashed_tfidf_v1",
+    ) -> dict[int, tuple[bytes, int]]:
+        """Fetch dense vectors for a batch of chunk_ids (or all).
+
+        When *chunk_ids* is None or empty the full table is returned;
+        callers are expected to bound this with BM25/TF-IDF candidate
+        lists to keep scan cost manageable.
+        """
+        if chunk_ids:
+            placeholders = ",".join(["?"] * len(chunk_ids))
+            sql = (
+                f"SELECT chunk_id, vector, dim FROM doc_embeddings "
+                f"WHERE model_id = ? AND chunk_id IN ({placeholders}) "
+                f"ORDER BY chunk_id, model_version DESC"
+            )
+            params: list = [model_id, *chunk_ids]
+        else:
+            sql = (
+                "SELECT chunk_id, vector, dim FROM doc_embeddings "
+                "WHERE model_id = ? "
+                "ORDER BY chunk_id, model_version DESC"
+            )
+            params = [model_id]
+
+        out: dict[int, tuple[bytes, int]] = {}
+        for row in self.conn.execute(sql, params):
+            cid = int(row[0])
+            # ORDER BY guarantees the highest model_version wins for each
+            # chunk_id; subsequent rows are older and skipped.
+            if cid in out:
+                continue
+            out[cid] = (bytes(row[1]), int(row[2]))
+        return out
+
+    def count_dense_embeddings(self, model_id: str = "hashed_tfidf_v1") -> int:
+        """Return the distinct-chunk count of stored dense vectors."""
+        row = self.conn.execute(
+            "SELECT COUNT(DISTINCT chunk_id) FROM doc_embeddings "
+            "WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def iter_chunks_missing_dense(
+        self, model_id: str = "hashed_tfidf_v1", batch_size: int = 500,
+    ):
+        """Yield ``(chunk_id, content)`` for chunks without a dense row.
+
+        Used by the backfill helper so long indexes don't have to load
+        into memory.  Batch-sized SQLite cursor iteration keeps the
+        working set small.
+        """
+        sql = (
+            "SELECT c.chunk_id, c.content FROM doc_chunks c "
+            "LEFT JOIN doc_embeddings e "
+            "       ON e.chunk_id = c.chunk_id AND e.model_id = ? "
+            "WHERE e.chunk_id IS NULL "
+            "ORDER BY c.chunk_id"
+        )
+        cur = self.conn.execute(sql, (model_id,))
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                return
+            for r in rows:
+                yield int(r[0]), r[1] or ""
+
+    # ------------------------------------------------------------------
     # Vocabulary adapter (called by TFIDFBackend)
     # ------------------------------------------------------------------
 
