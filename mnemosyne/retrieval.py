@@ -27,6 +27,35 @@ if TYPE_CHECKING:
 # FTS5 special characters that must be escaped in query strings
 _FTS5_SPECIAL = re.compile(r'["\'\(\)\*\:\^\.\,\;\-\?\!\[\]\{\}\<\>\~\`\#\@\&\$\%\+\=\/\\]')
 
+# Word-boundary regex that identifies test files by path.  Matches:
+#   - ``tests/foo.py`` or ``foo/tests/bar.py``  (tests directory)
+#   - ``foo/test_bar.py`` or ``test_bar.py``    (test_-prefixed file)
+#   - ``foo/bar_test.py``                       (_test-suffixed stem)
+#   - ``foo/bar.test.py`` / ``foo.test.js``     (.test. in stem)
+#   - ``foo/test.py`` on its own                (file literally named "test")
+# Explicitly does NOT match identifier substrings like ``contest.py``,
+# ``latest.py``, ``attestation.py``, ``protest.py`` where "test" is part
+# of a larger word.  One source of truth for both dep-graph tiebreaking
+# and fuse-time score demotion.
+_IS_TEST_RE = re.compile(
+    r"(?:^|/)tests?(?:/|\.)"        # tests/  tests.  test/  test.
+    r"|(?:^|/)test_"                 # test_foo.py
+    r"|_test(?:\.|$)"                # foo_test.py  foo_test
+    r"|\.test\."                     # foo.test.py / foo.test.js
+)
+
+
+def _is_test_path(path: str) -> bool:
+    """Return True if *path* refers to a test file or resides under a tests dir.
+
+    Uses word-boundary matching so identifier-internal occurrences of "test"
+    (e.g. ``contest.py``, ``latest.py``, ``attestation.py``) are not treated
+    as test files.
+    """
+    if not path:
+        return False
+    return bool(_IS_TEST_RE.search(path.lower()))
+
 # Common English stopwords that inflate BM25 scores for prose-heavy files
 # (HTML, Markdown) without contributing retrieval signal for code search.
 _STOPWORDS: frozenset[str] = frozenset({
@@ -721,7 +750,7 @@ class RetrievalEngine:
 
         def _sort_key(fid: int) -> tuple[int, int]:
             path = all_files.get(fid, "")
-            is_test = 1 if ("test" in path.lower()) else 0
+            is_test = 1 if _is_test_path(path) else 0
             return (is_test, -ref_counts.get(fid, 0))
 
         sorted_connected = sorted(eligible, key=_sort_key)
