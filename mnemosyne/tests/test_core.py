@@ -15,6 +15,7 @@ import sqlite3
 import struct
 import tempfile
 import unittest
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,54 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(cfg.general.max_file_size_kb, 512)
             self.assertIsInstance(cfg.general.supported_extensions, list)
             self.assertIn(".py", cfg.general.supported_extensions)
+
+    def test_default_extensions_cover_brace_family_languages(self):
+        """Regression guard: supported_extensions must expose every
+        language the chunker dispatcher already handles structurally.
+        Historically the defaults were Python/Node-flavoured and
+        silently filtered .cs / .rs / .go / .java / .kt / .c / .cpp
+        out of every ingest even though dedicated chunkers existed.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._make_config(root=tmp)
+            exts = cfg.general.supported_extensions
+            # Dedicated structural chunkers exist for these.
+            for required in (
+                ".cs", ".rs", ".go", ".java", ".kt",
+                ".mjs", ".cjs",
+            ):
+                self.assertIn(
+                    required,
+                    exts,
+                    msg=f"{required} missing from default supported_extensions",
+                )
+            # LANGUAGE_MAP-tagged (chunked by GenericChunker today, but
+            # still strictly better than silent exclusion).
+            for tagged in (".c", ".h", ".cpp", ".hpp", ".svg"):
+                self.assertIn(
+                    tagged,
+                    exts,
+                    msg=f"{tagged} missing from default supported_extensions",
+                )
+
+    def test_user_config_supported_extensions_unions_with_defaults(self):
+        """A user config.toml that sets supported_extensions must not
+        drop .cs et al. from the effective list -- the deep-merge is
+        list-union, so hardened language coverage is preserved even
+        when a project overrides the list with its own additions.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            mnemo_dir = Path(tmp) / ".mnemosyne"
+            mnemo_dir.mkdir(parents=True, exist_ok=True)
+            (mnemo_dir / "config.toml").write_text(
+                '[general]\nsupported_extensions = [".xyz"]\n',
+                encoding="utf-8",
+            )
+            cfg = self._make_config(root=tmp)
+            exts = cfg.general.supported_extensions
+            self.assertIn(".xyz", exts, "user addition must land")
+            self.assertIn(".cs", exts, "default .cs must survive user override")
+            self.assertIn(".py", exts, "default .py must survive user override")
 
     def test_get_method(self):
         """config.get(section, key) returns the correct value."""

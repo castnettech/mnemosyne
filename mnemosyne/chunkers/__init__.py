@@ -38,6 +38,8 @@ LANGUAGE_MAP: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
     ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
     ".go": "go",

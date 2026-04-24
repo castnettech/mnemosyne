@@ -62,9 +62,31 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         ],
         "max_file_size_kb": 512,
         "supported_extensions": [
+            # Python / JS / TS -- dedicated structural chunkers
             ".py",
             ".js",
+            ".jsx",
             ".ts",
+            ".tsx",
+            ".mjs",
+            ".cjs",
+            # Brace-family languages with dedicated structural chunkers
+            # (see mnemosyne/chunkers/__init__.py get_chunker dispatch)
+            ".go",
+            ".cs",
+            ".rs",
+            ".java",
+            ".kt",
+            # C / C++ -- LANGUAGE_MAP tagged; chunked by GenericChunker
+            # until a dedicated C chunker ships. Still strictly better
+            # than silent exclusion.
+            ".c",
+            ".h",
+            ".cpp",
+            ".hpp",
+            # Markup / vector graphics -- LANGUAGE_MAP tagged markup.
+            ".svg",
+            # Prose / config
             ".md",
             ".txt",
             ".json",
@@ -75,8 +97,6 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             ".sh",
             ".html",
             ".css",
-            ".jsx",
-            ".tsx",
             # Document formats (Tier 0 -- text extraction)
             ".pdf",
             ".docx",
