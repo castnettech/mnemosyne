@@ -626,6 +626,10 @@ class TestRegistryDispatch(unittest.TestCase):
         self.assertEqual(detect_language("main.cpp"), "cpp")
         self.assertEqual(detect_language("header.h"), "c")
         self.assertEqual(detect_language("header.hpp"), "cpp")
+        # ESM / CommonJS variants of JavaScript must route through
+        # JSChunker, not fall through to GenericChunker.
+        self.assertEqual(detect_language("esm-module.mjs"), "javascript")
+        self.assertEqual(detect_language("legacy.cjs"), "javascript")
 
     def test_unknown_extension_still_generic(self):
         from mnemosyne.chunkers import get_chunker
