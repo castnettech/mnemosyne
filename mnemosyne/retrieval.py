@@ -27,6 +27,35 @@ if TYPE_CHECKING:
 # FTS5 special characters that must be escaped in query strings
 _FTS5_SPECIAL = re.compile(r'["\'\(\)\*\:\^\.\,\;\-\?\!\[\]\{\}\<\>\~\`\#\@\&\$\%\+\=\/\\]')
 
+# Word-boundary regex that identifies test files by path.  Matches:
+#   - ``tests/foo.py`` or ``foo/tests/bar.py``  (tests directory)
+#   - ``foo/test_bar.py`` or ``test_bar.py``    (test_-prefixed file)
+#   - ``foo/bar_test.py``                       (_test-suffixed stem)
+#   - ``foo/bar.test.py`` / ``foo.test.js``     (.test. in stem)
+#   - ``foo/test.py`` on its own                (file literally named "test")
+# Explicitly does NOT match identifier substrings like ``contest.py``,
+# ``latest.py``, ``attestation.py``, ``protest.py`` where "test" is part
+# of a larger word.  One source of truth for both dep-graph tiebreaking
+# and fuse-time score demotion.
+_IS_TEST_RE = re.compile(
+    r"(?:^|/)tests?(?:/|\.)"        # tests/  tests.  test/  test.
+    r"|(?:^|/)test_"                 # test_foo.py
+    r"|_test(?:\.|$)"                # foo_test.py  foo_test
+    r"|\.test\."                     # foo.test.py / foo.test.js
+)
+
+
+def _is_test_path(path: str) -> bool:
+    """Return True if *path* refers to a test file or resides under a tests dir.
+
+    Uses word-boundary matching so identifier-internal occurrences of "test"
+    (e.g. ``contest.py``, ``latest.py``, ``attestation.py``) are not treated
+    as test files.
+    """
+    if not path:
+        return False
+    return bool(_IS_TEST_RE.search(path.lower()))
+
 # Common English stopwords that inflate BM25 scores for prose-heavy files
 # (HTML, Markdown) without contributing retrieval signal for code search.
 _STOPWORDS: frozenset[str] = frozenset({
@@ -108,9 +137,43 @@ class RetrievalEngine:
         self.prefetcher = prefetcher
         self.dense = dense_backend
 
+        # Cache fuse-time is_test demotion settings once per engine instance.
+        # Env flags (read once, NOT per query):
+        #   MNEMOSYNE_TEST_DEMOTION        - "on" (default) or "off"
+        #   MNEMOSYNE_TEST_DEMOTION_FACTOR - float in (0.0, 1.0], default 0.7
+        # When "off" or the factor is invalid / out of range, no demotion is
+        # applied and fused scores pass through unchanged for forensic parity
+        # with the pre-fix behaviour.
+        self._test_demotion_enabled, self._test_demotion_factor = (
+            self._parse_test_demotion_env()
+        )
+
         # Ensure the TF-IDF inverted index is populated from persisted
         # embeddings so vector search works immediately.
         self._ensure_inverted_index()
+
+    @staticmethod
+    def _parse_test_demotion_env() -> tuple[bool, float]:
+        """Parse MNEMOSYNE_TEST_DEMOTION{,_FACTOR} env vars once, with safe fallbacks.
+
+        Returns (enabled, factor).  The factor is clamped / validated; any
+        malformed value falls back to the 0.7 default rather than disabling
+        the feature silently.  An explicit ``off`` toggle still disables it.
+        """
+        raw_toggle = os.environ.get("MNEMOSYNE_TEST_DEMOTION", "on").strip().lower()
+        # Accept common truthy/falsy spellings; anything else is treated as on
+        # (fail-safe for rollout -- missing/garbled env should keep the fix).
+        enabled = raw_toggle not in ("off", "0", "false", "no", "disable", "disabled")
+
+        raw_factor = os.environ.get("MNEMOSYNE_TEST_DEMOTION_FACTOR", "0.7").strip()
+        try:
+            factor = float(raw_factor)
+        except (TypeError, ValueError):
+            factor = 0.7
+        # Factor must be in (0.0, 1.0].  Out-of-range -> default.
+        if not (0.0 < factor <= 1.0):
+            factor = 0.7
+        return enabled, factor
 
     def _ensure_inverted_index(self) -> None:
         """Load sparse embeddings into the TF-IDF inverted index if empty."""
@@ -181,6 +244,13 @@ class RetrievalEngine:
             symbol_results=symbol_pairs,
             dense_results=dense_results,
         )
+
+        # 5.0. Fuse-time is_test score demotion.  Multiplies the RRF score of
+        #      chunks whose file is a test file by a configurable factor
+        #      (default 0.7).  Test chunks stay in the candidate list for
+        #      forensic auditability + /recall-log parity -- only their rank
+        #      is lowered.  Controlled by MNEMOSYNE_TEST_DEMOTION env flag.
+        fused = self._apply_test_demotion(fused)
 
         # 5a. Symbol match multiplier -- stable baseline.
         #     All symbol matches get the same 3x boost as before.
@@ -492,6 +562,63 @@ class RetrievalEngine:
 
         return rrf_fuse(score_lists, weights, k=60)
 
+    def _apply_test_demotion(
+        self,
+        fused: list[tuple[int, float, dict]],
+    ) -> list[tuple[int, float, dict]]:
+        """Demote chunks from test files at RRF fuse time.
+
+        Multiplies the fused RRF score of each chunk whose source file is a
+        test file (detected via :func:`_is_test_path` on the stored rel_path)
+        by ``self._test_demotion_factor``.  Chunks are preserved in the list
+        for forensic auditability and parity with Plimsoll /recall-log; only
+        their rank is lowered.  Source score dicts get a ``test_demotion``
+        marker so downstream consumers can observe the multiplier applied.
+
+        When the feature is disabled (``MNEMOSYNE_TEST_DEMOTION=off``) or when
+        the list is empty, the input is returned unchanged and no file lookups
+        are performed.
+        """
+        if not self._test_demotion_enabled or not fused:
+            return fused
+
+        factor = self._test_demotion_factor
+
+        # Resolve file_id -> rel_path once for each file that appears in the
+        # fused list (one DB hit per unique chunk, cached across chunks that
+        # share a file).
+        file_is_test: dict[int, bool] = {}
+        out: list[tuple[int, float, dict]] = []
+        changed = False
+
+        for chunk_id, rrf_score, source_scores in fused:
+            chunk = self.store.get_chunk(chunk_id)
+            if chunk is None:
+                out.append((chunk_id, rrf_score, source_scores))
+                continue
+
+            fid = chunk.file_id
+            if fid not in file_is_test:
+                file_rec = self.store.get_file_record(fid)
+                rel_path = file_rec.rel_path if file_rec else ""
+                file_is_test[fid] = _is_test_path(rel_path)
+
+            if file_is_test[fid]:
+                new_score = rrf_score * factor
+                new_sources = dict(source_scores)
+                new_sources["rrf"] = new_score
+                new_sources["test_demotion"] = factor
+                out.append((chunk_id, new_score, new_sources))
+                changed = True
+            else:
+                out.append((chunk_id, rrf_score, source_scores))
+
+        # Re-sort only when at least one score was adjusted; otherwise the
+        # input order is already correct.
+        if changed:
+            out.sort(key=lambda x: x[1], reverse=True)
+        return out
+
     def _filename_boost(
         self,
         fused: list[tuple[int, float, dict]],
@@ -721,7 +848,7 @@ class RetrievalEngine:
 
         def _sort_key(fid: int) -> tuple[int, int]:
             path = all_files.get(fid, "")
-            is_test = 1 if ("test" in path.lower()) else 0
+            is_test = 1 if _is_test_path(path) else 0
             return (is_test, -ref_counts.get(fid, 0))
 
         sorted_connected = sorted(eligible, key=_sort_key)

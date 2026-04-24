@@ -664,5 +664,345 @@ class TestInjectionHeuristics(unittest.TestCase):
             )
 
 
+# ---------------------------------------------------------------------------
+# TestIsTestPathRegex -- word-boundary behaviour of _IS_TEST_RE / _is_test_path
+# ---------------------------------------------------------------------------
+
+
+class TestIsTestPathRegex(unittest.TestCase):
+    """
+    _is_test_path is the single source of truth for 'this path is a test
+    file' checks.  These tests pin the word-boundary semantics that the
+    naive 'test' in path.lower() check got wrong.
+    """
+
+    def test_positives(self):
+        from mnemosyne.retrieval import _is_test_path
+        # Canonical forms the brief calls out + a few variants we expect
+        # to also match.
+        for path in (
+            "tests/foo.py",
+            "foo/tests/bar.py",
+            "foo/test_bar.py",
+            "foo/bar_test.py",
+            "test_bar.py",
+            "bar_test.py",
+            "src/tests/deep/nested/mod.py",
+            "src/test/java/Foo.java",   # Maven/Gradle convention
+            "pkg/mod.test.js",           # Jest / Vitest convention
+            "pkg/mod.test.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(
+                    _is_test_path(path),
+                    f"Expected {path!r} to be classified as a test path",
+                )
+
+    def test_negatives(self):
+        from mnemosyne.retrieval import _is_test_path
+        # These must NOT match -- the old substring check misclassified them.
+        for path in (
+            "contest.py",
+            "latest.py",
+            "attestation.py",
+            "protest.py",
+            "manifest.json",
+            "fastest.py",
+            "greatest_hits.py",
+            "src/attestation/signer.py",
+            "src/latest_release.py",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(
+                    _is_test_path(path),
+                    f"Expected {path!r} to NOT be classified as a test path",
+                )
+
+    def test_empty_and_none_like(self):
+        from mnemosyne.retrieval import _is_test_path
+        self.assertFalse(_is_test_path(""))
+
+    def test_case_insensitive(self):
+        from mnemosyne.retrieval import _is_test_path
+        self.assertTrue(_is_test_path("Tests/Foo.py"))
+        self.assertTrue(_is_test_path("TEST_bar.py"))
+        # But still case-safe against false positives.
+        self.assertFalse(_is_test_path("CONTEST.py"))
+
+
+# ---------------------------------------------------------------------------
+# TestSortKeyRegex -- dep-graph injection tiebreak uses the tightened regex
+# ---------------------------------------------------------------------------
+
+
+class TestSortKeyRegex(unittest.TestCase):
+    """
+    Regression guard: the _sort_key closure inside _import_graph_boost must
+    use _is_test_path() (not the old 'test' substring check) so files like
+    'latest.py' or 'contest.py' are not penalised as tests in the dep-graph
+    injection ordering.
+    """
+
+    def test_dep_graph_sort_key_prefers_prod_over_real_tests(self):
+        """
+        Build two candidate file paths -- one a real test file, one a prod
+        file whose name contains the substring 'test' -- and verify the
+        tiebreak ranks the prod file first.  We exercise the sort key in
+        isolation by reconstructing the same sort contract used inside
+        _import_graph_boost.
+        """
+        from mnemosyne.retrieval import _is_test_path
+
+        # Simulate the closure exactly: (is_test, -ref_count)
+        all_files = {
+            10: "src/latest.py",      # prod file; old code would demote this
+            20: "tests/test_auth.py", # actual test file
+            30: "src/contest.py",     # prod (word 'contest')
+        }
+        ref_counts = {10: 3, 20: 3, 30: 3}
+
+        def _sort_key(fid: int) -> tuple[int, int]:
+            path = all_files.get(fid, "")
+            is_test = 1 if _is_test_path(path) else 0
+            return (is_test, -ref_counts.get(fid, 0))
+
+        ordered = sorted(all_files.keys(), key=_sort_key)
+
+        # First two slots must be the prod files (10, 30); real test is last.
+        self.assertEqual(ordered[-1], 20)
+        self.assertIn(10, ordered[:2])
+        self.assertIn(30, ordered[:2])
+
+    def test_dep_graph_sort_key_tiebreaks_by_ref_count(self):
+        """
+        Among prod-only files, higher ref_count wins -- confirms the tuple
+        ordering still delegates to the secondary key after is_test.
+        """
+        from mnemosyne.retrieval import _is_test_path
+
+        all_files = {
+            1: "src/a.py",
+            2: "src/b.py",
+            3: "src/c.py",
+        }
+        ref_counts = {1: 1, 2: 5, 3: 3}
+
+        def _sort_key(fid: int) -> tuple[int, int]:
+            path = all_files.get(fid, "")
+            is_test = 1 if _is_test_path(path) else 0
+            return (is_test, -ref_counts.get(fid, 0))
+
+        ordered = sorted(all_files.keys(), key=_sort_key)
+        self.assertEqual(ordered, [2, 3, 1])  # 5 refs -> 3 refs -> 1 ref
+
+
+# ---------------------------------------------------------------------------
+# TestIsTestDemotion -- fuse-time is_test score demotion + env flag gating
+# ---------------------------------------------------------------------------
+
+
+class TestIsTestDemotion(unittest.TestCase):
+    """
+    Tests for Wave 0 fuse-time is_test demotion (MNEMOSYNE_TEST_DEMOTION).
+
+    The demotion applies a score multiplier to RRF results whose source file
+    is a test file.  It is gated behind two env flags read once per engine
+    construction: MNEMOSYNE_TEST_DEMOTION (on/off) and
+    MNEMOSYNE_TEST_DEMOTION_FACTOR (float in (0.0, 1.0]).
+    """
+
+    # Environment keys we manipulate; always restore in tearDown.
+    _ENV_TOGGLE = "MNEMOSYNE_TEST_DEMOTION"
+    _ENV_FACTOR = "MNEMOSYNE_TEST_DEMOTION_FACTOR"
+
+    def setUp(self):
+        self._saved_env = {
+            k: os.environ.get(k)
+            for k in (self._ENV_TOGGLE, self._ENV_FACTOR)
+        }
+
+    def tearDown(self):
+        for k, v in self._saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def _set_env(self, toggle=None, factor=None):
+        if toggle is None:
+            os.environ.pop(self._ENV_TOGGLE, None)
+        else:
+            os.environ[self._ENV_TOGGLE] = toggle
+        if factor is None:
+            os.environ.pop(self._ENV_FACTOR, None)
+        else:
+            os.environ[self._ENV_FACTOR] = factor
+
+    def _build_engine_with_prod_and_test(self):
+        """Seed an engine with one prod chunk and one test chunk.
+
+        Both chunks have identical content so raw BM25 + TF-IDF scores match;
+        any rank difference comes from the fuse-time demotion.
+
+        Returns (engine, prod_chunk_id, test_chunk_id).
+        """
+        from mnemosyne.embeddings.tfidf_backend import TFIDFBackend
+        from mnemosyne.retrieval import RetrievalEngine
+
+        store, _ = _make_memory_store()
+        cfg = _default_config()
+        cfg.embedding.tfidf_min_df = 1
+        cfg.retrieval.max_results = 10
+        cfg.retrieval.token_budget = 5000
+
+        # Identical content for both -- forces raw signals to tie.
+        identical = "def authenticate(token):\n    return verify(token)\n"
+
+        prod_fid, prod_cids = _insert_file_and_chunks(
+            store, "src/auth.py", [identical],
+        )
+        test_fid, test_cids = _insert_file_and_chunks(
+            store, "tests/test_auth.py", [identical],
+        )
+
+        tfidf = TFIDFBackend(cfg, store=None)
+        tfidf.build_vocabulary([identical, identical])
+        chunk_vectors = []
+        for cid in prod_cids + test_cids:
+            vec = tfidf.embed(identical)
+            if vec:
+                store.insert_sparse_embedding(cid, vec)
+                chunk_vectors.append((cid, vec))
+        tfidf.build_inverted_index(chunk_vectors)
+
+        engine = RetrievalEngine(
+            store=store, tfidf_backend=tfidf, config=cfg,
+        )
+        return engine, prod_cids[0], test_cids[0]
+
+    # ------------------------------------------------------------------
+    # Test b: demotion applied at fuse time with identical raw signals
+    # ------------------------------------------------------------------
+
+    def test_is_test_demotion_applied_at_fuse_time(self):
+        """
+        With identical BM25 + TF-IDF signals, the prod chunk must outrank
+        the test chunk after fuse-time demotion.  The score delta must
+        match the configured 0.7 default factor.
+        """
+        self._set_env(toggle="on", factor=None)  # default 0.7
+        engine, prod_cid, test_cid = self._build_engine_with_prod_and_test()
+
+        # Build synthetic fused list with IDENTICAL raw scores.
+        fused = [
+            (prod_cid, 1.0, {"bm25": 1.0, "vector": 1.0, "rrf": 1.0}),
+            (test_cid, 1.0, {"bm25": 1.0, "vector": 1.0, "rrf": 1.0}),
+        ]
+
+        out = engine._apply_test_demotion(fused)
+
+        # Map chunk_id -> (score, sources) for assertions.
+        by_cid = {cid: (score, sources) for cid, score, sources in out}
+        self.assertIn(prod_cid, by_cid)
+        self.assertIn(test_cid, by_cid)
+
+        prod_score, prod_sources = by_cid[prod_cid]
+        test_score, test_sources = by_cid[test_cid]
+
+        # Prod chunk must rank first (higher score).
+        self.assertEqual(out[0][0], prod_cid)
+        self.assertEqual(out[1][0], test_cid)
+
+        # Prod stays at 1.0 and has no test_demotion marker.
+        self.assertAlmostEqual(prod_score, 1.0, places=6)
+        self.assertNotIn("test_demotion", prod_sources)
+
+        # Test chunk is demoted to 1.0 * 0.7 = 0.7.
+        self.assertAlmostEqual(test_score, 0.7, places=6)
+        self.assertAlmostEqual(test_sources["rrf"], 0.7, places=6)
+        self.assertAlmostEqual(test_sources["test_demotion"], 0.7, places=6)
+
+    # ------------------------------------------------------------------
+    # Test c: env=off preserves raw ordering
+    # ------------------------------------------------------------------
+
+    def test_is_test_demotion_env_off_preserves_order(self):
+        """
+        With MNEMOSYNE_TEST_DEMOTION=off, the demotion path is a no-op.
+        Tests must be allowed to tie or outrank prod when raw signals say so.
+        """
+        self._set_env(toggle="off", factor=None)
+        engine, prod_cid, test_cid = self._build_engine_with_prod_and_test()
+
+        # Raw signals favour the test chunk so the tie-break would have
+        # otherwise flipped to prod under demotion.
+        fused = [
+            (test_cid, 0.9, {"bm25": 0.9, "rrf": 0.9}),
+            (prod_cid, 0.8, {"bm25": 0.8, "rrf": 0.8}),
+        ]
+
+        out = engine._apply_test_demotion(fused)
+
+        # Order is preserved and scores are untouched.
+        self.assertEqual([cid for cid, _, _ in out], [test_cid, prod_cid])
+        self.assertAlmostEqual(out[0][1], 0.9, places=6)
+        self.assertAlmostEqual(out[1][1], 0.8, places=6)
+
+        # No test_demotion marker leaks into source scores when disabled.
+        for _, _, sources in out:
+            self.assertNotIn("test_demotion", sources)
+
+    # ------------------------------------------------------------------
+    # Test d: env factor override
+    # ------------------------------------------------------------------
+
+    def test_is_test_demotion_factor_env_override(self):
+        """
+        Setting MNEMOSYNE_TEST_DEMOTION_FACTOR=0.5 must be honoured when the
+        engine is constructed: the multiplier applied to test chunks is 0.5.
+        """
+        self._set_env(toggle="on", factor="0.5")
+        engine, prod_cid, test_cid = self._build_engine_with_prod_and_test()
+
+        fused = [
+            (prod_cid, 1.0, {"bm25": 1.0, "rrf": 1.0}),
+            (test_cid, 1.0, {"bm25": 1.0, "rrf": 1.0}),
+        ]
+
+        out = engine._apply_test_demotion(fused)
+        by_cid = {cid: (score, sources) for cid, score, sources in out}
+
+        self.assertEqual(out[0][0], prod_cid)
+        self.assertAlmostEqual(by_cid[prod_cid][0], 1.0, places=6)
+        self.assertAlmostEqual(by_cid[test_cid][0], 0.5, places=6)
+        self.assertAlmostEqual(
+            by_cid[test_cid][1]["test_demotion"], 0.5, places=6,
+        )
+
+    # ------------------------------------------------------------------
+    # Extra: invalid factor falls back to default (defensive)
+    # ------------------------------------------------------------------
+
+    def test_is_test_demotion_invalid_factor_falls_back(self):
+        """
+        A bad MNEMOSYNE_TEST_DEMOTION_FACTOR value (non-float, out of range)
+        must fall back to the 0.7 default rather than silently disabling
+        the feature or propagating an invalid multiplier.
+        """
+        self._set_env(toggle="on", factor="nope")  # non-numeric
+        engine, prod_cid, test_cid = self._build_engine_with_prod_and_test()
+        self.assertTrue(engine._test_demotion_enabled)
+        self.assertAlmostEqual(engine._test_demotion_factor, 0.7, places=6)
+
+        # Out-of-range (0.0 or >1.0) also falls back to 0.7.
+        self._set_env(toggle="on", factor="0.0")
+        engine2, _, _ = self._build_engine_with_prod_and_test()
+        self.assertAlmostEqual(engine2._test_demotion_factor, 0.7, places=6)
+
+        self._set_env(toggle="on", factor="1.5")
+        engine3, _, _ = self._build_engine_with_prod_and_test()
+        self.assertAlmostEqual(engine3._test_demotion_factor, 0.7, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()
