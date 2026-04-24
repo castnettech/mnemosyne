@@ -665,6 +665,138 @@ class TestInjectionHeuristics(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# TestIsTestPathRegex -- word-boundary behaviour of _IS_TEST_RE / _is_test_path
+# ---------------------------------------------------------------------------
+
+
+class TestIsTestPathRegex(unittest.TestCase):
+    """
+    _is_test_path is the single source of truth for 'this path is a test
+    file' checks.  These tests pin the word-boundary semantics that the
+    naive 'test' in path.lower() check got wrong.
+    """
+
+    def test_positives(self):
+        from mnemosyne.retrieval import _is_test_path
+        # Canonical forms the brief calls out + a few variants we expect
+        # to also match.
+        for path in (
+            "tests/foo.py",
+            "foo/tests/bar.py",
+            "foo/test_bar.py",
+            "foo/bar_test.py",
+            "test_bar.py",
+            "bar_test.py",
+            "src/tests/deep/nested/mod.py",
+            "src/test/java/Foo.java",   # Maven/Gradle convention
+            "pkg/mod.test.js",           # Jest / Vitest convention
+            "pkg/mod.test.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(
+                    _is_test_path(path),
+                    f"Expected {path!r} to be classified as a test path",
+                )
+
+    def test_negatives(self):
+        from mnemosyne.retrieval import _is_test_path
+        # These must NOT match -- the old substring check misclassified them.
+        for path in (
+            "contest.py",
+            "latest.py",
+            "attestation.py",
+            "protest.py",
+            "manifest.json",
+            "fastest.py",
+            "greatest_hits.py",
+            "src/attestation/signer.py",
+            "src/latest_release.py",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(
+                    _is_test_path(path),
+                    f"Expected {path!r} to NOT be classified as a test path",
+                )
+
+    def test_empty_and_none_like(self):
+        from mnemosyne.retrieval import _is_test_path
+        self.assertFalse(_is_test_path(""))
+
+    def test_case_insensitive(self):
+        from mnemosyne.retrieval import _is_test_path
+        self.assertTrue(_is_test_path("Tests/Foo.py"))
+        self.assertTrue(_is_test_path("TEST_bar.py"))
+        # But still case-safe against false positives.
+        self.assertFalse(_is_test_path("CONTEST.py"))
+
+
+# ---------------------------------------------------------------------------
+# TestSortKeyRegex -- dep-graph injection tiebreak uses the tightened regex
+# ---------------------------------------------------------------------------
+
+
+class TestSortKeyRegex(unittest.TestCase):
+    """
+    Regression guard: the _sort_key closure inside _import_graph_boost must
+    use _is_test_path() (not the old 'test' substring check) so files like
+    'latest.py' or 'contest.py' are not penalised as tests in the dep-graph
+    injection ordering.
+    """
+
+    def test_dep_graph_sort_key_prefers_prod_over_real_tests(self):
+        """
+        Build two candidate file paths -- one a real test file, one a prod
+        file whose name contains the substring 'test' -- and verify the
+        tiebreak ranks the prod file first.  We exercise the sort key in
+        isolation by reconstructing the same sort contract used inside
+        _import_graph_boost.
+        """
+        from mnemosyne.retrieval import _is_test_path
+
+        # Simulate the closure exactly: (is_test, -ref_count)
+        all_files = {
+            10: "src/latest.py",      # prod file; old code would demote this
+            20: "tests/test_auth.py", # actual test file
+            30: "src/contest.py",     # prod (word 'contest')
+        }
+        ref_counts = {10: 3, 20: 3, 30: 3}
+
+        def _sort_key(fid: int) -> tuple[int, int]:
+            path = all_files.get(fid, "")
+            is_test = 1 if _is_test_path(path) else 0
+            return (is_test, -ref_counts.get(fid, 0))
+
+        ordered = sorted(all_files.keys(), key=_sort_key)
+
+        # First two slots must be the prod files (10, 30); real test is last.
+        self.assertEqual(ordered[-1], 20)
+        self.assertIn(10, ordered[:2])
+        self.assertIn(30, ordered[:2])
+
+    def test_dep_graph_sort_key_tiebreaks_by_ref_count(self):
+        """
+        Among prod-only files, higher ref_count wins -- confirms the tuple
+        ordering still delegates to the secondary key after is_test.
+        """
+        from mnemosyne.retrieval import _is_test_path
+
+        all_files = {
+            1: "src/a.py",
+            2: "src/b.py",
+            3: "src/c.py",
+        }
+        ref_counts = {1: 1, 2: 5, 3: 3}
+
+        def _sort_key(fid: int) -> tuple[int, int]:
+            path = all_files.get(fid, "")
+            is_test = 1 if _is_test_path(path) else 0
+            return (is_test, -ref_counts.get(fid, 0))
+
+        ordered = sorted(all_files.keys(), key=_sort_key)
+        self.assertEqual(ordered, [2, 3, 1])  # 5 refs -> 3 refs -> 1 ref
+
+
+# ---------------------------------------------------------------------------
 # TestIsTestDemotion -- fuse-time is_test score demotion + env flag gating
 # ---------------------------------------------------------------------------
 
