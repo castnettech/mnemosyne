@@ -671,6 +671,21 @@ class Ingester:
             except Exception:
                 pass
 
+            # Dense hashed-TFIDF lane.  Never raises; a zero-norm vector
+            # is acceptable (the retriever skips them).
+            try:
+                from mnemosyne.embeddings import hashed_dense as _hd
+                self.doc_store.insert_dense_embedding(
+                    chunk_id,
+                    vector_bytes=_hd.embed_bytes(enriched),
+                    model_id=_hd.MODEL_ID,
+                    model_version=_hd.MODEL_VERSION,
+                    dim=_hd.DIM,
+                    quantization=_hd.QUANTIZATION,
+                )
+            except Exception:
+                pass
+
             self.bloom.add(chunk_hash)
             chunks_added += 1
 
@@ -746,12 +761,65 @@ class Ingester:
 
         self.doc_tfidf.build_vocabulary(enriched_texts)
 
+        # Lazily import the dense embedder -- keeps startup cost low for
+        # callers that never reach the doc partition.
+        try:
+            from mnemosyne.embeddings import hashed_dense as _hd
+        except Exception:
+            _hd = None
+
         for row, enriched in zip(rows, enriched_texts):
             terms = self.doc_tfidf.embed(enriched)
             if terms:
                 self.doc_store.insert_sparse_embedding(row[0], terms)
+            if _hd is not None:
+                try:
+                    self.doc_store.insert_dense_embedding(
+                        int(row[0]),
+                        vector_bytes=_hd.embed_bytes(enriched),
+                        model_id=_hd.MODEL_ID,
+                        model_version=_hd.MODEL_VERSION,
+                        dim=_hd.DIM,
+                        quantization=_hd.QUANTIZATION,
+                    )
+                except Exception:
+                    pass
 
         try:
             self.doc_tfidf._save_vocabulary()
         except Exception:
             pass
+
+    def backfill_doc_dense_embeddings(self) -> int:
+        """Populate doc_embeddings for any doc_chunk missing a dense row.
+
+        Returns the number of rows inserted.  Safe to re-run -- uses
+        ``INSERT OR REPLACE`` semantics via
+        :meth:`DocStore.insert_dense_embedding`.  Intended for migration
+        of indexes built before schema version 5.
+        """
+        if self.doc_store is None:
+            return 0
+        try:
+            from mnemosyne.embeddings import hashed_dense as _hd
+        except Exception:
+            return 0
+
+        written = 0
+        for chunk_id, content in self.doc_store.iter_chunks_missing_dense(
+            model_id=_hd.MODEL_ID
+        ):
+            vec = _hd.embed_bytes(content or "")
+            try:
+                self.doc_store.insert_dense_embedding(
+                    chunk_id,
+                    vector_bytes=vec,
+                    model_id=_hd.MODEL_ID,
+                    model_version=_hd.MODEL_VERSION,
+                    dim=_hd.DIM,
+                    quantization=_hd.QUANTIZATION,
+                )
+                written += 1
+            except Exception:
+                pass
+        return written
