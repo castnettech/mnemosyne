@@ -11,6 +11,12 @@ Responsibilities:
 
 Schema version history:
   1  -- initial schema (all tables defined here)
+  2  -- files.source_type column
+  3  -- extraction metadata + chunks.page_number
+  4  -- document partition (doc_chunks, doc_chunks_fts, doc_sparse_embeddings,
+       doc_vocabulary)
+  5  -- doc_embeddings table for the dense 128-dim hashed-TFIDF lane
+       (hybrid retrieval + lightweight rerank, Wave 1D)
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ import sqlite3
 from pathlib import Path
 from typing import Final
 
-CURRENT_SCHEMA_VERSION: Final[int] = 4
+CURRENT_SCHEMA_VERSION: Final[int] = 5
 
 # ---------------------------------------------------------------------------
 # DDL strings
@@ -325,6 +331,31 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     # ------------------------------------------------------------------
+    # doc_embeddings -- dense lightweight vectors for doc chunks.
+    #
+    # The hashed_tfidf_v1 backend stores 128-dim int8 little-endian
+    # bytes per chunk. A second row with a newer model_version can be
+    # inserted without touching the old one; retrieval picks the
+    # highest model_version with ``ORDER BY model_version DESC``.
+    # model_id is kept alongside so a future ONNX dense backend can
+    # live in the same table.
+    # ------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS doc_embeddings (
+        chunk_id       INTEGER NOT NULL REFERENCES doc_chunks (chunk_id) ON DELETE CASCADE,
+        model_id       TEXT    NOT NULL DEFAULT 'hashed_tfidf_v1',
+        model_version  INTEGER NOT NULL DEFAULT 1,
+        dim            INTEGER NOT NULL DEFAULT 128,
+        quantization   TEXT    NOT NULL DEFAULT 'int8',
+        vector         BLOB    NOT NULL,
+        updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (chunk_id, model_id, model_version)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_doc_embeddings_chunk     ON doc_embeddings (chunk_id)",
+    "CREATE INDEX IF NOT EXISTS idx_doc_embeddings_model_ver ON doc_embeddings (model_id, model_version)",
+
+    # ------------------------------------------------------------------
     # schema_version -- single-row version tracker for migrations
     # ------------------------------------------------------------------
     """
@@ -403,6 +434,25 @@ _MIGRATIONS: list[tuple[int, int, list[str]]] = [
             idf REAL NOT NULL DEFAULT 0.0,
             total_docs INTEGER NOT NULL DEFAULT 1
         )""",
+    ]),
+    (4, 5, [
+        # doc_embeddings -- dense 128-dim int8 hashed_tfidf_v1 vectors
+        # for document chunks.  Enables the dense lane + lightweight
+        # rerank in DocRetrievalEngine.  Composite PK lets a newer
+        # model_version coexist with the old one; readers pick the
+        # highest model_version at query time.
+        """CREATE TABLE IF NOT EXISTS doc_embeddings (
+            chunk_id INTEGER NOT NULL REFERENCES doc_chunks (chunk_id) ON DELETE CASCADE,
+            model_id TEXT NOT NULL DEFAULT 'hashed_tfidf_v1',
+            model_version INTEGER NOT NULL DEFAULT 1,
+            dim INTEGER NOT NULL DEFAULT 128,
+            quantization TEXT NOT NULL DEFAULT 'int8',
+            vector BLOB NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (chunk_id, model_id, model_version)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_doc_embeddings_chunk     ON doc_embeddings (chunk_id)",
+        "CREATE INDEX IF NOT EXISTS idx_doc_embeddings_model_ver ON doc_embeddings (model_id, model_version)",
     ]),
 ]
 

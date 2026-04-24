@@ -243,7 +243,7 @@ class TestSchemaVersion:
         ).fetchall()}
         assert "doc_chunks_fts" in tables
 
-    def test_schema_version_is_4(self, project):
+    def test_schema_version_is_5(self, project):
         config = Config(root=project)
         db_dir = project / ".mnemosyne"
         conn = open_store(db_dir)
@@ -251,6 +251,16 @@ class TestSchemaVersion:
         row = conn.execute(
             "SELECT version FROM schema_version ORDER BY rowid DESC LIMIT 1"
         ).fetchone()
-        assert row[0] == 4
+        # Schema v5 adds the doc_embeddings table for the dense lane.
+        assert row[0] == 5
 
+        conn.close()
+
+    def test_doc_embeddings_table_exists(self, project):
+        db_dir = project / ".mnemosyne"
+        conn = open_store(db_dir)
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        assert "doc_embeddings" in tables
         conn.close()
