@@ -26,17 +26,52 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "project_root": ".",
         "ignore_patterns": [
             # Hidden directories and files -- catches .git, .mnemosyne,
-            # .env, .ssh, .aws, .vscode, .idea, .github, etc.
+            # .env, .ssh, .aws, .vscode, .idea, .github, .venv,
+            # .pytest_cache, .mypy_cache, .tox, .next, .nuxt, .gradle,
+            # .cache, .dotnet, etc.
             ".*",
-            # Build artifacts
+            # Generic build / output directories across many languages.
+            # `bin` and `obj` matter most for .NET; previously absent and
+            # caused massive .deps.json blobs to dominate BM25.
             "node_modules",
             "__pycache__",
             "mnemosyne",
+            "bin",
+            "obj",
+            "target",
+            "build",
+            "dist",
+            "out",
+            "vendor",
+            "cmake-build-*",
+            "htmlcov",
+            "*.egg-info",
+            # Compiled / runtime artifacts. Source projects rarely
+            # commit these; when they do, indexing them adds noise
+            # without adding signal.
             "*.pyc",
+            "*.class",
+            "*.jar",
+            "*.war",
+            "*.ear",
+            "*.dll",
+            "*.exe",
+            "*.pdb",
+            "*.dylib",
+            "*.so",
+            "*.o",
+            "*.a",
+            # .NET runtime descriptors that are not source.
+            "*.deps.json",
+            "*.runtimeconfig.json",
+            "*.runtimeconfig.dev.json",
+            # TypeScript build cache.
+            "*.tsbuildinfo",
+            # Lockfiles + minified bundles.
             "*.lock",
             "*.min.js",
             "*.min.css",
-            # Secrets and credentials
+            # Secrets and credentials.
             "*.pem",
             "*.key",
             "*.p12",
@@ -57,7 +92,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             "token.json",
             "*.token",
             "*.tfvars",
-            # Common non-source noise
+            # Common non-source noise.
             "package-lock.json",
         ],
         "max_file_size_kb": 512,
