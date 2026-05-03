@@ -77,6 +77,45 @@ class TestConfig(unittest.TestCase):
                     msg=f"{tagged} missing from default supported_extensions",
                 )
 
+    def test_default_ignore_patterns_cover_build_outputs(self):
+        """Regression guard: ignore_patterns must hide common build-output
+        directories and runtime artifacts from indexing. Without these,
+        a .NET project's `bin/Release/*.deps.json` (NuGet dependency
+        manifest) ends up in the doc store with high-IDF tokens that
+        dominate BM25 scoring on unrelated queries -- the precise
+        failure mode that triggered this hardening.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._make_config(root=tmp)
+            patterns = cfg.general.ignore_patterns
+            # .NET noise that triggered the rework.
+            for required in ("bin", "obj", "*.deps.json",
+                             "*.runtimeconfig.json"):
+                self.assertIn(
+                    required,
+                    patterns,
+                    msg=f"{required} missing from default ignore_patterns",
+                )
+            # Generic build dirs across many languages.
+            for required in ("node_modules", "__pycache__", "target",
+                             "build", "dist", "out", "vendor",
+                             "cmake-build-*", "htmlcov", "*.egg-info"):
+                self.assertIn(
+                    required,
+                    patterns,
+                    msg=f"{required} missing from default ignore_patterns",
+                )
+            # Compiled artifacts that should not be indexed even when
+            # checked in.
+            for required in ("*.class", "*.jar", "*.dll", "*.exe",
+                             "*.pdb", "*.so", "*.dylib",
+                             "*.tsbuildinfo"):
+                self.assertIn(
+                    required,
+                    patterns,
+                    msg=f"{required} missing from default ignore_patterns",
+                )
+
     def test_user_config_supported_extensions_unions_with_defaults(self):
         """A user config.toml that sets supported_extensions must not
         drop .cs et al. from the effective list -- the deep-merge is

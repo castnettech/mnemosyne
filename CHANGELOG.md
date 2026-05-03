@@ -5,6 +5,43 @@ All notable changes to Mnemosyne are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Default `general.ignore_patterns` extended to cover common build-output
+  directories and runtime artifacts that the prior set silently allowed
+  into the index. Triggering case: a .NET project whose
+  `bin/Release/*.deps.json` and `*.runtimeconfig.json` files (NuGet
+  build manifests, hundreds of KB of high-IDF JSON) ended up dominating
+  BM25 scoring on unrelated queries -- the doc-retrieval lane would
+  surface a build manifest as a top cite for prompts that had nothing
+  to do with .NET.
+
+  Additions:
+  - Generic build dirs: `bin`, `obj`, `target`, `build`, `dist`, `out`,
+    `vendor`, `cmake-build-*`, `htmlcov`, `*.egg-info`
+  - Compiled artifacts: `*.class`, `*.jar`, `*.war`, `*.ear`, `*.dll`,
+    `*.exe`, `*.pdb`, `*.dylib`, `*.so`, `*.o`, `*.a`
+  - .NET runtime descriptors: `*.deps.json`, `*.runtimeconfig.json`,
+    `*.runtimeconfig.dev.json`
+  - TypeScript build cache: `*.tsbuildinfo`
+
+  The hidden-dir glob (`.*`) already covered `.venv`, `.pytest_cache`,
+  `.mypy_cache`, `.tox`, `.gradle`, `.next`, `.nuxt`, `.cache`,
+  `.dotnet`, etc. -- comment expanded for clarity, no behavior change
+  there.
+
+  User-config semantics unchanged: a project that defines its own
+  `general.ignore_patterns` in `.mnemosyne/config.toml` still wins via
+  the existing list-union deep-merge.
+
+  **Behavior change for already-indexed projects:** a re-index
+  (`mnemosyne ingest --full`) is required to evict polluted rows.
+  Projects that intentionally indexed files matching the new patterns
+  (rare but possible: a `bin/` directory of shell scripts, or
+  compliance scans against `*.deps.json`) can override by setting
+  `general.ignore_patterns` in `.mnemosyne/config.toml`.
+
 ## [1.1.0] - 2026-04-07
 
 ### Added
