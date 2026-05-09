@@ -72,7 +72,7 @@ Key settings to consider adjusting:
 ignore_patterns = [".git", "node_modules", "__pycache__", ".mnemosyne", "*.pyc", "*.lock"]
 
 # Max file size to index (skip large generated files)
-max_file_size_kb = 512
+max_file_size_kb = 1024
 
 # File types to index
 supported_extensions = [".py", ".js", ".ts", ".md", ".txt", ".json", ".yaml", ".sql", ".sh", ".html", ".css"]
@@ -408,6 +408,6 @@ echo "=== ALL TESTS PASSED ==="
 | `0 chunks, 0 tokens` on query | Run `mnemosyne ingest` first -- the index is empty |
 | All files skipped on ingest | Run `mnemosyne ingest --full` to force re-index |
 | File type not indexed | Add the extension to `supported_extensions` in `.mnemosyne/config.toml` |
-| Large files skipped | Increase `max_file_size_kb` in config (default: 512 KB) |
+| Large files skipped | Increase `max_file_size_kb` in config (default: 1024 KB) |
 | Query returns too few results | Lower the `--budget` or adjust `retrieval.max_results` in config |
 | `python3 -m mnemosyne` not found | Ensure you're in the right directory or `PYTHONPATH` is set |

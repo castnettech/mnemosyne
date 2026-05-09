@@ -44,7 +44,7 @@ class TestConfig(unittest.TestCase):
         """config.general.max_file_size_kb is accessible."""
         with tempfile.TemporaryDirectory() as tmp:
             cfg = self._make_config(root=tmp)
-            self.assertEqual(cfg.general.max_file_size_kb, 512)
+            self.assertEqual(cfg.general.max_file_size_kb, 1024)
             self.assertIsInstance(cfg.general.supported_extensions, list)
             self.assertIn(".py", cfg.general.supported_extensions)
 

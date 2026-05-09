@@ -150,7 +150,7 @@ preserve_docstrings = true
 
 [general]
 ignore_patterns = [".git", "node_modules", "__pycache__", ".mnemosyne"]
-max_file_size_kb = 512
+max_file_size_kb = 1024
 ```
 
 The `budget` parameter in `mnemosyne.search` overrides `token_budget` on a per-query basis.
