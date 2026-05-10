@@ -95,7 +95,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             # Common non-source noise.
             "package-lock.json",
         ],
-        "max_file_size_kb": 512,
+        "max_file_size_kb": 1024,
         "supported_extensions": [
             # Python / JS / TS -- dedicated structural chunkers
             ".py",

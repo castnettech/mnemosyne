@@ -483,7 +483,7 @@ Configuration is read from `.mnemosyne/config.toml` in the project root, deep-me
 |---|---|---|
 | `project_root` | `"."` | Root directory to scan (relative to config file location). |
 | `ignore_patterns` | `[".git", "node_modules", "__pycache__", ...]` | fnmatch patterns for files and directories to skip. |
-| `max_file_size_kb` | `512` | Files larger than this are skipped during ingestion. |
+| `max_file_size_kb` | `1024` | Files larger than this are skipped during ingestion. |
 | `supported_extensions` | `[".py", ".js", ".ts", ".go", ".cs", ".rs", ".java", ".kt", ".md", ...]` | File extensions to index. |
 
 ### `[chunking]`
@@ -1253,7 +1253,7 @@ Configuration is read from `.mnemosyne/config.toml` in the project root, deep-me
 |---|---|---|
 | `project_root` | `"."` | Root directory to scan (relative to config file location). |
 | `ignore_patterns` | `[".git", "node_modules", "__pycache__", ...]` | fnmatch patterns for files and directories to skip. |
-| `max_file_size_kb` | `512` | Files larger than this are skipped during ingestion. |
+| `max_file_size_kb` | `1024` | Files larger than this are skipped during ingestion. |
 | `supported_extensions` | `[".py", ".js", ".ts", ".go", ".cs", ".rs", ".java", ".kt", ".md", ...]` | File extensions to index. |
 
 ### `[chunking]`
