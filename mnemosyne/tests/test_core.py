@@ -77,6 +77,45 @@ class TestConfig(unittest.TestCase):
                     msg=f"{tagged} missing from default supported_extensions",
                 )
 
+    def test_default_extensions_cover_long_tail_languages(self):
+        """Regression guard: the default supported_extensions must
+        cover the long tail of language ecosystems, not just the
+        Python/Node/brace-family core. Previously a user opening
+        mnemosyne against a Swift/Ruby/Elixir/Vue/Nix/Proto project
+        would see 'no files indexed' because the default extension
+        list silently filtered everything.
+
+        Each category exists for a real reason: someone has a project
+        in that ecosystem and expects mnemosyne to work without
+        hand-editing config.toml first.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._make_config(root=tmp)
+            exts = cfg.general.supported_extensions
+            categories = {
+                "mobile/Apple": (".swift", ".kts", ".dart"),
+                "C/C++ alternates": (".cc", ".cxx", ".hh", ".hxx"),
+                "functional": (
+                    ".hs", ".ml", ".mli", ".erl", ".hrl",
+                    ".fs", ".fsi", ".ex", ".exs",
+                ),
+                "scripting": (
+                    ".rb", ".php", ".scala", ".sc", ".lua",
+                    ".r", ".R", ".pl", ".pm",
+                ),
+                "web frameworks": (".vue", ".svelte"),
+                "systems": (".nix", ".zig"),
+                "shells beyond sh": (".bash", ".zsh", ".fish"),
+                "schemas": (".proto", ".graphql", ".gql"),
+            }
+            for category, required in categories.items():
+                for ext in required:
+                    self.assertIn(
+                        ext,
+                        exts,
+                        msg=f"{ext} ({category}) missing from default supported_extensions",
+                    )
+
     def test_default_ignore_patterns_cover_build_outputs(self):
         """Regression guard: ignore_patterns must hide common build-output
         directories and runtime artifacts from indexing. Without these,
