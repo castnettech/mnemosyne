@@ -144,6 +144,58 @@ DEFAULTS: dict[str, dict[str, Any]] = {
             ".conf",
             ".rst",
             ".xml",
+            # Mobile / Apple ecosystem -- LANGUAGE_MAP-tagged but
+            # historically excluded by default; chunked by
+            # GenericChunker until dedicated structural chunkers ship.
+            ".swift",
+            ".kts",  # Kotlin script
+            ".dart",
+            # C / C++ alternates the LANGUAGE_MAP recognizes but the
+            # prior list missed.
+            ".cc",
+            ".cxx",
+            ".hh",
+            ".hxx",
+            # Functional languages -- GenericChunker fallback. Adding
+            # so a user with a Haskell/OCaml/Erlang/F#/Elixir project
+            # is not silently filtered out.
+            ".hs",
+            ".ml",
+            ".mli",
+            ".erl",
+            ".hrl",
+            ".fs",
+            ".fsi",
+            ".ex",
+            ".exs",
+            # Scripting languages frequently encountered in mixed
+            # repos but absent from the prior Python/Node-flavoured
+            # default.
+            ".rb",
+            ".php",
+            ".scala",
+            ".sc",
+            ".lua",
+            ".r",
+            ".R",
+            ".pl",
+            ".pm",
+            # Web frameworks with single-file component shapes.
+            ".vue",
+            ".svelte",
+            # Systems languages.
+            ".nix",
+            ".zig",
+            # Shells beyond .sh -- the brace-family / completion
+            # variants real shops actually use.
+            ".bash",
+            ".zsh",
+            ".fish",
+            # Schema-definition formats commonly checked into
+            # service repos.
+            ".proto",
+            ".graphql",
+            ".gql",
         ],
     },
     "chunking": {

@@ -121,6 +121,42 @@ class TestDocumentIngestion:
         assert stats["files_indexed"] > 0
         assert stats["files_failed"] == 0
 
+    def test_ingest_stats_include_files_by_extension(self, engine):
+        """Per-extension breakdown must be present + match files_scanned.
+
+        Added so a dry-run / ingest-preview surface can show "what
+        would be ingested by extension", not just total counts.
+        Plumbed here so a single engine ingest call carries enough
+        info; no caller has to reproduce the scan.
+        """
+        ingester, _store, _doc_store, _config = engine
+        stats = ingester.ingest()
+
+        assert "files_by_extension" in stats, "missing per-extension stat"
+        by_ext = stats["files_by_extension"]
+        assert isinstance(by_ext, dict)
+        # Sum of per-extension counts must equal files_scanned (every
+        # file in the resolved scan list contributes exactly one
+        # extension count).
+        assert sum(by_ext.values()) == stats["files_scanned"]
+        # Test fixture writes .docx, .log, .ini files; at least those
+        # should appear in the breakdown.
+        for ext in (".docx", ".log", ".ini"):
+            assert ext in by_ext, f"{ext} missing from files_by_extension {by_ext!r}"
+
+    def test_ingest_dry_run_populates_files_by_extension(self, engine):
+        """Dry-run path must produce the same extension breakdown as
+        a real ingest -- because the per-extension stat is built off
+        the resolved scan list, not the indexing loop's writes.
+        """
+        ingester, _store, _doc_store, _config = engine
+        stats = ingester.ingest(dry_run=True)
+        by_ext = stats["files_by_extension"]
+        assert isinstance(by_ext, dict)
+        assert sum(by_ext.values()) == stats["files_scanned"]
+        # Dry-run still tallies every scanned file's extension.
+        assert len(by_ext) > 0
+
     def test_csv_chunks_in_doc_partition(self, engine):
         ingester, store, doc_store, config = engine
         ingester.ingest()

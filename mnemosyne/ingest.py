@@ -93,11 +93,15 @@ class Ingester:
         Returns:
             Stats dict with keys ``files_scanned``, ``files_indexed``,
             ``files_skipped``, ``files_failed``, ``chunks_added``,
-            ``chunks_deduped``, ``elapsed_seconds``.
+            ``chunks_deduped``, ``elapsed_seconds``, and
+            ``files_by_extension`` (a ``dict[str, int]`` keyed by
+            lowercased extension string -- ``".py"``, ``".rs"``,
+            ``"(no-ext)"`` for extensionless files -- with file counts
+            from the resolved scan list).
         """
         t_start = time.monotonic()
 
-        stats: dict[str, int | float] = {
+        stats: dict[str, int | float | dict[str, int]] = {
             "files_scanned": 0,
             "files_indexed": 0,
             "files_skipped": 0,
@@ -105,6 +109,12 @@ class Ingester:
             "chunks_added": 0,
             "chunks_deduped": 0,
             "elapsed_seconds": 0.0,
+            # Per-extension count of files in the resolved scan list.
+            # Built once after _scan_files / _resolve_paths returns so
+            # the cost is a single pass over file_list (no extra IO).
+            # Surfaces in dry-run / preview output so callers can see
+            # WHAT they're about to ingest, not just the totals.
+            "files_by_extension": {},
         }
 
         # Resolve file list
@@ -114,6 +124,16 @@ class Ingester:
             file_list = self._scan_files()
 
         stats["files_scanned"] = len(file_list)
+        # Per-extension tally on the resolved scan list. Honors the
+        # exact set of files the ingester will actually walk -- so the
+        # breakdown reflects ignore_patterns + supported_extensions
+        # filtering already applied by _scan_files.
+        ext_counts: dict[str, int] = {}
+        for abs_path in file_list:
+            _, ext = os.path.splitext(abs_path)
+            ext_lower = ext.lower() or "(no-ext)"
+            ext_counts[ext_lower] = ext_counts.get(ext_lower, 0) + 1
+        stats["files_by_extension"] = ext_counts
 
         # On full re-index of the entire project, purge stale file records
         # (files that were previously indexed but are no longer in the scan
