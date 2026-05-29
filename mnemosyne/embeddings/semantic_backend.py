@@ -21,19 +21,24 @@ Why a separate module from ``dense_backend``:
 
 Model artifact (sourcing contract)
 -----------------------------------
-The model is NOT bundled in this repository and is NOT downloaded from a
-personal account.  A maintainer converts + quantizes the official BAAI weights
-ONCE (see ``tools/convert_bge_small_onnx.py``), hosts the result at a
-PROJECT-OWNED location, and pins it here:
+The model is NOT bundled in this repository.  It is the vetted, pre-built int8
+ONNX export of BAAI/bge-small-en-v1.5 maintained by the reputable HF-staff
+Xenova account -- a single quantized file, no local conversion step.  It is
+pinned to an immutable commit and SHA-verified here:
 
-    * MODEL_REPO / MODEL_BASE_URL -- where the artifact lives.  A placeholder
-      default ships; set the real value on publish (or override via config /
-      the ``MNEMOSYNE_SEMANTIC_MODEL_REPO`` env var / ``base_url`` argument).
-    * MODEL_REVISION -- pin to a SPECIFIC immutable commit hash on publish.
-    * MODEL_SHA256 / TOKENIZER_SHA256 -- the exact hashes the conversion tool
-      printed.  When set, downloads are verified and REJECTED + deleted on
-      mismatch.  When None, a LOUD warning is emitted (unpinned / unverified).
-    * MODEL_FILENAME / TOKENIZER_FILENAME -- the quantized onnx + tokenizer.
+    * MODEL_REPO / MODEL_BASE_URL -- the artifact repository base URL.  Defaults
+      to ``https://huggingface.co/Xenova/bge-small-en-v1.5``.  Override via
+      config ``semantic_model_repo`` / the ``MNEMOSYNE_SEMANTIC_MODEL_REPO`` env
+      var / the ``base_url`` argument (a mirror must serve the same
+      ``resolve/<rev>/<path>`` layout).
+    * MODEL_REVISION -- the immutable commit pin.  The download URL is built as
+      ``<repo>/resolve/<rev>/<path>``.
+    * MODEL_SHA256 -- the verified hash of the int8 model; the download is
+      REJECTED + deleted on mismatch.  TOKENIZER_SHA256 is None (the pinned
+      commit makes tokenizer.json immutable; set it on first download to enable
+      verification) so a LOUD warning fires for it until set.
+    * MODEL_FILENAME / TOKENIZER_FILENAME -- the int8 onnx (under ``onnx/``) and
+      the tokenizer; cached locally by basename.
 
 Security model
 --------------
@@ -43,8 +48,8 @@ Security model
   chmod 0600.  On a hash mismatch the partial file is removed and the load
   fails closed.
 - Offline supported: point ``local_path`` at a directory holding pre-placed
-  ``model_quantized.onnx`` + ``tokenizer.json`` and the network is never
-  touched.  An already-cached file is likewise reused without a download.
+  ``model_int8.onnx`` + ``tokenizer.json`` and the network is never touched.
+  An already-cached file is likewise reused without a download.
 - Graceful degradation: if onnxruntime or numpy is missing, the model files
   are unavailable, or the text is empty, every embed call returns ``None`` and
   the caller simply skips this lane.
@@ -73,29 +78,38 @@ logger = logging.getLogger(__name__)
 # Model constants -- the maintainer sets these on artifact publish.
 # ---------------------------------------------------------------------------
 
-#: Project-owned artifact location.  This is a DOCUMENTED PLACEHOLDER -- the
-#: maintainer replaces it (or overrides it at runtime) with the real host they
-#: publish the converted artifact to.  It MUST NOT point at a personal account.
+#: Base URL of the pre-built artifact repository.  Defaults to the vetted,
+#: HF-staff-maintained Xenova int8 ONNX export of BAAI/bge-small-en-v1.5 -- a
+#: single-file quantized model, no conversion step, no personal account.
 #: Override precedence: ``base_url`` arg > config ``semantic_model_repo`` >
-#: ``MNEMOSYNE_SEMANTIC_MODEL_REPO`` env var > this default.
-MODEL_REPO: str = "https://models.example-project.invalid/bge-small-en-v1.5"
+#: ``MNEMOSYNE_SEMANTIC_MODEL_REPO`` env var > this default.  A custom mirror
+#: must serve the same ``resolve/<rev>/<path>`` layout (HuggingFace style).
+MODEL_REPO: str = "https://huggingface.co/Xenova/bge-small-en-v1.5"
 
 #: Alias kept for callers/readers who think in "base URL" terms.
 MODEL_BASE_URL: str = MODEL_REPO
 
-#: Pin to a SPECIFIC immutable revision/commit when the artifact is published.
-#: A revision path segment is only appended when this is set.
-MODEL_REVISION: str | None = None  # set on artifact publish
+#: Immutable commit pin on the artifact repo.  A revision is ALWAYS used to
+#: build the download URL when set; this makes ``tokenizer.json`` (which has no
+#: SHA pin below) content-addressable, and pins the model bytes we verify.
+MODEL_REVISION: str | None = "ea104dacec62c0de699686887e3f920caeb4f3e3"
 
-#: The quantized ONNX model + the HuggingFace tokenizer.json filenames.
-MODEL_FILENAME: str = "model_quantized.onnx"
+#: Remote paths of the int8 ONNX model + the HuggingFace tokenizer.json,
+#: RELATIVE to ``resolve/<rev>/``.  The model lives under an ``onnx/`` prefix in
+#: the Xenova repo; the local cache file is flattened to its basename (see
+#: :func:`_local_filename`) so offline ``local_path`` dirs stay flat.
+MODEL_FILENAME: str = "onnx/model_int8.onnx"
 TOKENIZER_FILENAME: str = "tokenizer.json"
 
-#: Expected SHA-256 of each artifact.  SET THESE on publish to the values the
-#: conversion tool prints.  When None the download is UNVERIFIED -- a loud
-#: warning fires; do not ship a public release with these unset.
-MODEL_SHA256: str | None = None      # set on artifact publish
-TOKENIZER_SHA256: str | None = None  # set on artifact publish
+#: Expected SHA-256 of each artifact.  The model is SHA-pinned (verified ->
+#: download is REJECTED + deleted on mismatch).  The tokenizer is left None:
+#: the pinned commit makes tokenizer.json immutable; compute its SHA-256 on
+#: first download and set this to enable verification.  (The big-risk file --
+#: the model -- IS SHA-pinned, so the artifact's integrity is checked.)
+MODEL_SHA256: str | None = (
+    "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197"
+)
+TOKENIZER_SHA256: str | None = None
 
 #: Output dimensionality and max sequence length for bge-small-en-v1.5.
 MODEL_DIM: int = 384
@@ -151,12 +165,32 @@ def _resolve_base_url(config: "Config | None", base_url: str | None) -> str:
 
 
 def _artifact_url(base_url: str, filename: str) -> str:
-    """Join base URL + optional pinned revision + filename into a download URL."""
+    """Build the download URL for ``filename`` from the artifact repo.
+
+    Uses the HuggingFace ``resolve/<rev>/<path>`` layout when a revision is
+    pinned (the default), e.g.::
+
+        https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/<rev>/onnx/model_int8.onnx
+
+    When ``MODEL_REVISION`` is None (a custom flat mirror), the filename is
+    joined directly onto the base URL.  ``filename`` keeps its remote prefix
+    (e.g. ``onnx/...``); only the LOCAL cache path is flattened.
+    """
     parts = [base_url.rstrip("/")]
     if MODEL_REVISION:
-        parts.append(MODEL_REVISION)
-    parts.append(filename)
+        parts.extend(("resolve", MODEL_REVISION))
+    parts.append(filename.lstrip("/"))
     return "/".join(parts)
+
+
+def _local_filename(remote_filename: str) -> str:
+    """Map a remote artifact path to its FLAT local cache filename.
+
+    The remote model path carries an ``onnx/`` prefix; the local cache (and
+    offline ``local_path`` dirs) store the file by basename so no subdirectory
+    is required.  The loader reads exactly the name written here.
+    """
+    return os.path.basename(remote_filename)
 
 
 # ---------------------------------------------------------------------------
@@ -205,11 +239,17 @@ class SemanticBackend:
     # ------------------------------------------------------------------
 
     def _resolve_paths(self) -> tuple[str, str]:
-        """Return (model_path, tokenizer_path) for the active source dir."""
+        """Return (model_path, tokenizer_path) for the active source dir.
+
+        Local files are stored FLAT (by basename), so the remote ``onnx/``
+        prefix on ``MODEL_FILENAME`` is stripped here -- the offline
+        ``local_path`` dir holds ``model_int8.onnx`` + ``tokenizer.json``
+        directly, no ``onnx/`` subdirectory.
+        """
         source_dir = self._local_path or self._cache_dir
         return (
-            os.path.join(source_dir, MODEL_FILENAME),
-            os.path.join(source_dir, TOKENIZER_FILENAME),
+            os.path.join(source_dir, _local_filename(MODEL_FILENAME)),
+            os.path.join(source_dir, _local_filename(TOKENIZER_FILENAME)),
         )
 
     def _ensure_model(self) -> None:
@@ -233,7 +273,8 @@ class SemanticBackend:
             ):
                 raise FileNotFoundError(
                     "semantic model local_path is set but "
-                    f"{MODEL_FILENAME} / {TOKENIZER_FILENAME} were not found "
+                    f"{_local_filename(MODEL_FILENAME)} / "
+                    f"{_local_filename(TOKENIZER_FILENAME)} were not found "
                     f"in {self._local_path!r}"
                 )
         else:
@@ -332,25 +373,19 @@ class SemanticBackend:
 
         outputs = self._session.run(None, feeds)
 
-        # outputs[0]: (1, seq_len, hidden_dim).  bge uses the [CLS] token as the
-        # sentence embedding, but mean-pooling over non-pad tokens is robust
-        # across export variants and matches the existing dense path; both are
-        # L2-normalized so cosine ordering is what matters.
-        token_embeddings = outputs[0][0]  # (seq_len, hidden_dim)
-        mask = np.array(attention_mask, dtype=np.float32)
+        # outputs[0] is last_hidden_state: (1, seq_len, hidden_dim).  bge-small-
+        # en-v1.5 is a CLS-pooling model (model card: "pooling: cls, normalize:
+        # true") -- the sentence embedding is token 0 (the [CLS] vector), NOT a
+        # mean over tokens.  Mean-pooling here is WRONG for bge and degrades
+        # retrieval; take the CLS row, then L2-normalize.
+        last_hidden_state = outputs[0]  # (1, seq_len, hidden_dim)
+        cls_vec = last_hidden_state[:, 0, :][0]  # token 0 -> (hidden_dim,)
 
-        masked = token_embeddings * mask[:, np.newaxis]
-        summed = masked.sum(axis=0)
-        count = mask.sum()
-        if count == 0:
-            return None
-        mean_vec = summed / count
-
-        norm = np.linalg.norm(mean_vec)
+        norm = np.linalg.norm(cls_vec)
         if norm > 0:
-            mean_vec = mean_vec / norm
+            cls_vec = cls_vec / norm
 
-        return mean_vec.astype(np.float32).tolist()
+        return cls_vec.astype(np.float32).tolist()
 
     def embed_query(self, text: str) -> list[float] | None:
         """Embed ``text`` as a SEARCH QUERY (bge instruction prefixed)."""
