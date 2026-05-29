@@ -211,6 +211,15 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "dense_model": None,  # "minilm-l6-code" to enable, None to disable
         "dense_dim": 384,
         "dense_weight": 0.3,
+        # Optional 384-dim semantic backend (BGE-small ONNX, [dense] extra).
+        # Set a truthy id (e.g. "bge-small-en-v1.5") to enable; None disables.
+        "semantic_model": None,
+        # Override the project-owned artifact host; None uses the module default
+        # / the MNEMOSYNE_SEMANTIC_MODEL_REPO env var.
+        "semantic_model_repo": None,
+        # Offline: directory holding a pre-placed model_quantized.onnx +
+        # tokenizer.json.  When set, the network is never contacted.
+        "semantic_local_path": None,
     },
     "compression": {
         "target_ratio": 0.4,

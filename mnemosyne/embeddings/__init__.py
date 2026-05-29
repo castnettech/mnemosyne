@@ -56,4 +56,43 @@ def get_dense_backend(config: "Config", store=None, model_dir: str | None = None
         return None
 
 
-__all__ = ["TFIDFBackend", "get_backend", "get_dense_backend"]
+def get_semantic_backend(
+    config: "Config",
+    *,
+    cache_dir: str | None = None,
+    local_path: str | None = None,
+    base_url: str | None = None,
+):
+    """Return the BGE-small semantic embedding backend, or ``None``.
+
+    Returns ``None`` when the semantic backend is not enabled in config
+    (``embedding.semantic_model`` falsy) so the caller can fall back to the
+    lighter lanes.  The instance itself degrades gracefully (``embed`` returns
+    ``None`` when onnxruntime/numpy or the model artifact is missing), so it is
+    safe to construct even when those are absent.
+
+    Args:
+        config:     Mnemosyne :class:`~mnemosyne.config.Config` instance.
+        cache_dir:  Override the shared model cache directory.
+        local_path: Offline directory of pre-placed model files (skips network).
+        base_url:   Override the artifact base URL.
+
+    Returns:
+        A :class:`~mnemosyne.embeddings.semantic_backend.SemanticBackend`, or
+        ``None`` if not enabled.
+    """
+    if not getattr(config.embedding, "semantic_model", None):
+        return None
+    from mnemosyne.embeddings.semantic_backend import SemanticBackend
+
+    return SemanticBackend(
+        config, cache_dir=cache_dir, local_path=local_path, base_url=base_url
+    )
+
+
+__all__ = [
+    "TFIDFBackend",
+    "get_backend",
+    "get_dense_backend",
+    "get_semantic_backend",
+]
