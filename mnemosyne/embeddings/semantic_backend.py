@@ -33,10 +33,11 @@ pinned to an immutable commit and SHA-verified here:
       ``resolve/<rev>/<path>`` layout).
     * MODEL_REVISION -- the immutable commit pin.  The download URL is built as
       ``<repo>/resolve/<rev>/<path>``.
-    * MODEL_SHA256 -- the verified hash of the int8 model; the download is
-      REJECTED + deleted on mismatch.  TOKENIZER_SHA256 is None (the pinned
-      commit makes tokenizer.json immutable; set it on first download to enable
-      verification) so a LOUD warning fires for it until set.
+    * MODEL_SHA256 / TOKENIZER_SHA256 -- the verified hashes of the int8 model
+      and tokenizer.json; each download is REJECTED + deleted on mismatch.  Both
+      are pinned, so the download verifies the model AND the tokenizer.  If
+      either is ever left None, a LOUD per-artifact warning names exactly which
+      file is unverified until its hash is set.
     * MODEL_FILENAME / TOKENIZER_FILENAME -- the int8 onnx (under ``onnx/``) and
       the tokenizer; cached locally by basename.
 
@@ -90,8 +91,9 @@ MODEL_REPO: str = "https://huggingface.co/Xenova/bge-small-en-v1.5"
 MODEL_BASE_URL: str = MODEL_REPO
 
 #: Immutable commit pin on the artifact repo.  A revision is ALWAYS used to
-#: build the download URL when set; this makes ``tokenizer.json`` (which has no
-#: SHA pin below) content-addressable, and pins the model bytes we verify.
+#: build the download URL when set; this makes every artifact (model and
+#: ``tokenizer.json``) content-addressable, on top of the explicit SHA-256 pins
+#: below that we verify each downloaded file against.
 MODEL_REVISION: str | None = "ea104dacec62c0de699686887e3f920caeb4f3e3"
 
 #: Remote paths of the int8 ONNX model + the HuggingFace tokenizer.json,
@@ -101,15 +103,18 @@ MODEL_REVISION: str | None = "ea104dacec62c0de699686887e3f920caeb4f3e3"
 MODEL_FILENAME: str = "onnx/model_int8.onnx"
 TOKENIZER_FILENAME: str = "tokenizer.json"
 
-#: Expected SHA-256 of each artifact.  The model is SHA-pinned (verified ->
-#: download is REJECTED + deleted on mismatch).  The tokenizer is left None:
-#: the pinned commit makes tokenizer.json immutable; compute its SHA-256 on
-#: first download and set this to enable verification.  (The big-risk file --
-#: the model -- IS SHA-pinned, so the artifact's integrity is checked.)
+#: Expected SHA-256 of each artifact.  BOTH are SHA-pinned (verified ->
+#: each download is REJECTED + deleted on mismatch), so the int8 model AND the
+#: tokenizer.json are checked against a known-good hash.  These are the hashes
+#: of the files served by the pinned ``MODEL_REVISION`` commit; rotate them
+#: together if the revision is ever bumped.  Leaving either None disables
+#: verification for that file and fires a loud per-artifact warning.
 MODEL_SHA256: str | None = (
     "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197"
 )
-TOKENIZER_SHA256: str | None = None
+TOKENIZER_SHA256: str | None = (
+    "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+)
 
 #: Output dimensionality and max sequence length for bge-small-en-v1.5.
 MODEL_DIM: int = 384
@@ -302,19 +307,45 @@ class SemanticBackend:
 
     @staticmethod
     def _maybe_warn_unverified() -> None:
-        """Emit a loud warning when SHA-256 pins are unset before a download."""
-        missing = []
-        if MODEL_SHA256 is None:
-            missing.append("MODEL_SHA256")
-        if TOKENIZER_SHA256 is None:
-            missing.append("TOKENIZER_SHA256")
-        if missing:
+        """Warn -- per artifact -- when a SHA-256 pin is unset before a download.
+
+        The message names exactly which file(s) lack a hash so the warning is
+        accurate:
+
+        * If MODEL_SHA256 is unset, the MODEL itself is unverified -- the serious
+          case (arbitrary downloaded code/weights run locally).  The message
+          also notes if the tokenizer is unverified alongside it.
+        * If only TOKENIZER_SHA256 is unset, the model IS verified and only
+          ``tokenizer.json`` is unpinned -- a narrow gap; the message says so
+          explicitly so it does not imply the model is unverified.
+        * If both are pinned (the shipped default), nothing is emitted.
+        """
+        model_unpinned = MODEL_SHA256 is None
+        tokenizer_unpinned = TOKENIZER_SHA256 is None
+
+        if model_unpinned:
+            # The model is the high-risk artifact; lead with it.
+            also = (
+                " (tokenizer.json is also unpinned)"
+                if tokenizer_unpinned
+                else ""
+            )
             logger.warning(
-                "SECURITY: semantic model is UNPINNED/UNVERIFIED -- %s are not "
-                "set, so the downloaded artifact's integrity is NOT checked. "
-                "Set the SHA-256 pins (and a pinned MODEL_REVISION) before any "
-                "production use, or pre-place a trusted artifact via local_path.",
-                " and ".join(missing),
+                "SECURITY: the semantic MODEL is UNPINNED/UNVERIFIED -- "
+                "MODEL_SHA256 is not set, so the downloaded model artifact's "
+                "integrity is NOT checked.%s Set the SHA-256 pin (and a pinned "
+                "MODEL_REVISION) before any production use, or pre-place a "
+                "trusted artifact via local_path.",
+                also,
+            )
+        elif tokenizer_unpinned:
+            # Narrow gap: model verified, only the tokenizer lacks a hash.
+            logger.warning(
+                "SECURITY: tokenizer.json is not SHA-pinned -- "
+                "TOKENIZER_SHA256 is not set, so the downloaded tokenizer's "
+                "integrity is NOT checked. The semantic MODEL IS verified "
+                "against MODEL_SHA256; set TOKENIZER_SHA256 to close this gap, "
+                "or pre-place a trusted tokenizer via local_path."
             )
 
     # ------------------------------------------------------------------

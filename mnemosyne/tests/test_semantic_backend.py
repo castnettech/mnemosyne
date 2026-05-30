@@ -137,38 +137,84 @@ class TestCacheAndUrlResolution:
         )
 
 
+def _security_warnings(caplog) -> list[str]:
+    """Return the SECURITY warning messages captured (the unverified-pin warns)."""
+    return [
+        rec.message
+        for rec in caplog.records
+        if rec.levelname == "WARNING" and "SECURITY:" in rec.message
+    ]
+
+
 class TestUnverifiedWarning:
-    def test_warns_when_shas_unset(self, monkeypatch, caplog):
-        monkeypatch.setattr(sb, "MODEL_SHA256", None)
-        monkeypatch.setattr(sb, "TOKENIZER_SHA256", None)
+    """The per-artifact warning must name exactly which file lacks a SHA pin.
+
+    These drive ``_maybe_warn_unverified`` directly with crafted pin values, so
+    they never touch the network and are independent of the shipped defaults.
+    """
+
+    def test_shipped_defaults_emit_no_warning(self, caplog):
+        """As shipped BOTH artifacts are SHA-pinned -> no unpinned warning."""
+        # Guards the actual module-level constants, not crafted values.
+        assert sb.MODEL_SHA256 is not None and len(sb.MODEL_SHA256) == 64
+        assert sb.TOKENIZER_SHA256 is not None and len(sb.TOKENIZER_SHA256) == 64
         with caplog.at_level("WARNING"):
             sb.SemanticBackend._maybe_warn_unverified()
-        assert any(
-            "UNPINNED/UNVERIFIED" in rec.message for rec in caplog.records
-        )
+        assert not _security_warnings(caplog)
 
-    def test_silent_when_shas_set(self, monkeypatch, caplog):
+    def test_silent_when_both_shas_set(self, monkeypatch, caplog):
         monkeypatch.setattr(sb, "MODEL_SHA256", "a" * 64)
         monkeypatch.setattr(sb, "TOKENIZER_SHA256", "b" * 64)
         with caplog.at_level("WARNING"):
             sb.SemanticBackend._maybe_warn_unverified()
-        assert not any(
-            "UNPINNED/UNVERIFIED" in rec.message for rec in caplog.records
-        )
+        assert not _security_warnings(caplog)
 
-    def test_shipped_defaults_pin_model_warn_only_tokenizer(self, caplog):
-        """As shipped: the model IS sha-pinned; only the tokenizer warns."""
-        # The big-risk file is verified, the immutable-commit tokenizer is not.
-        assert sb.MODEL_SHA256 is not None and len(sb.MODEL_SHA256) == 64
-        assert sb.TOKENIZER_SHA256 is None
+    def test_model_unpinned_warning_names_the_model(self, monkeypatch, caplog):
+        """If the MODEL hash is unset, the warning calls out the MODEL."""
+        monkeypatch.setattr(sb, "MODEL_SHA256", None)
+        monkeypatch.setattr(sb, "TOKENIZER_SHA256", "b" * 64)
         with caplog.at_level("WARNING"):
             sb.SemanticBackend._maybe_warn_unverified()
-        msgs = [rec.message for rec in caplog.records]
-        warned = [m for m in msgs if "UNPINNED/UNVERIFIED" in m]
-        assert warned, "tokenizer should warn while unpinned"
-        # The warning names the tokenizer, not the model.
+        warned = _security_warnings(caplog)
+        assert warned, "an unpinned model must warn"
+        assert all("MODEL_SHA256" in m for m in warned)
+        assert all("MODEL is UNPINNED" in m for m in warned)
+        # The tokenizer is pinned here, so it must not be flagged as unpinned.
+        assert all("tokenizer.json is also unpinned" not in m for m in warned)
+
+    def test_both_unpinned_warning_names_model_and_tokenizer(
+        self, monkeypatch, caplog
+    ):
+        """Both hashes unset -> the (model-led) warning also flags the tokenizer."""
+        monkeypatch.setattr(sb, "MODEL_SHA256", None)
+        monkeypatch.setattr(sb, "TOKENIZER_SHA256", None)
+        with caplog.at_level("WARNING"):
+            sb.SemanticBackend._maybe_warn_unverified()
+        warned = _security_warnings(caplog)
+        assert warned, "both unpinned must warn"
+        assert all("MODEL_SHA256" in m for m in warned)
+        assert any("tokenizer.json is also unpinned" in m for m in warned)
+
+    def test_tokenizer_only_unpinned_names_tokenizer_and_says_model_verified(
+        self, monkeypatch, caplog
+    ):
+        """Model pinned, tokenizer not -> name only the tokenizer; model verified.
+
+        This is the case the old wording got wrong: it must NOT imply the model
+        is unverified.
+        """
+        monkeypatch.setattr(sb, "MODEL_SHA256", "a" * 64)
+        monkeypatch.setattr(sb, "TOKENIZER_SHA256", None)
+        with caplog.at_level("WARNING"):
+            sb.SemanticBackend._maybe_warn_unverified()
+        warned = _security_warnings(caplog)
+        assert warned, "an unpinned tokenizer must warn"
+        # Names the tokenizer hash; does NOT claim the model is unpinned.
         assert all("TOKENIZER_SHA256" in m for m in warned)
-        assert all("MODEL_SHA256" not in m for m in warned)
+        assert all("tokenizer.json is not SHA-pinned" in m for m in warned)
+        assert all("MODEL is UNPINNED" not in m for m in warned)
+        # And it states the model IS verified.
+        assert all("MODEL IS verified" in m for m in warned)
 
 
 class TestShippedModelPins:
@@ -191,6 +237,16 @@ class TestShippedModelPins:
         assert sb.MODEL_SHA256 == (
             "bf64d05457cb391fa88d045faf5927a15ea36d96228ddf23ea970087afdc1197"
         )
+
+    def test_tokenizer_sha256_is_pinned(self):
+        """The tokenizer is now SHA-pinned too (both artifacts verified).
+
+        Asserted as a 64-char lowercase hex string rather than a literal so a
+        future pin rotation (alongside MODEL_REVISION) does not re-break this.
+        """
+        assert sb.TOKENIZER_SHA256 is not None
+        assert len(sb.TOKENIZER_SHA256) == 64
+        assert all(c in "0123456789abcdef" for c in sb.TOKENIZER_SHA256)
 
 
 class TestGracefulFallback:
